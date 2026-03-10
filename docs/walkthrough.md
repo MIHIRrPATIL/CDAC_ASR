@@ -17,12 +17,27 @@ To satisfy your requirement of using the official download scripts while staying
 
 ## How to Start Training
 
-1.  **Hugging Face Login** (Already completed):
+1.  **H100 Environment Setup:**
+    If you are using a remote H100 (e.g., Lambda, AWS), follow the [GPU Setup Guide](setup_gpu.md) first to ensure CUDA and `libsndfile` are ready.
+
+2.  **Hugging Face Login:**
     ```bash
     hf auth login
     ```
 2.  **Verify Download Scripts:**
     Ensure your `download_scripts/` directory contains `download_train_data.sh`. I have already created these for you.
+
+3.  **Local Training Test (Dry Run):**
+    Before moving to the H100, you can verify the pipeline works on your laptop (even without a GPU) by running:
+    ```bash
+    python train_streaming.py --hub_model_id test/dry-run --dry_run
+    ```
+    This will:
+    - Automatically detect your CPU.
+    - Run exactly 5 steps.
+    - Disable Hub uploading and heavy logging.
+    - Use a batch size of 1 to save RAM.
+
 ---
 
 ## How to use on your Local Device (Laptop)
@@ -57,3 +72,8 @@ The script will now use the **Cosine Similarity logits** to identify phonemes an
 ## Next Steps
 - [ ] **Monitor Hub Sync:** Ensure your first few checkpoints (every 1000 steps) are successfully uploading to your HF Hub.
 - [ ] **Evaluate on OOVs:** Test how the embedding space handles Out-Of-Vocabulary words compared to the old model.
+
+## Reference Documentation
+- [Architecture Overview](architecture_overview.md)
+- [GPU Setup Guide](setup_gpu.md)
+- [G2P Training & Maintenance Guide](../g2p/training_guide.md)

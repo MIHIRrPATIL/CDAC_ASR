@@ -63,7 +63,13 @@ def main():
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
     args = parser.parse_args()
+
+    if args.dry_run:
+        print("🔧 DRY RUN MODE: Reducing steps to 5 and logging frequently.")
+        args.steps = 5
+        args.batch_size = 1
 
     # 1. Load Processor
     print(f"Loading processor from {args.processor_dir}...")
@@ -115,24 +121,29 @@ def main():
     # Apply preprocessing to stream
     processed_dataset = dataset.map(prepare_dataset)
 
-    # 4. Training Arguments (optimized for H100 and 24h/50GB limits)
+    # 4. Training Arguments (optimized for H100 but compatible with local CPU)
+    has_cuda = torch.cuda.is_available()
+    use_bf16 = has_cuda and torch.cuda.is_bf16_supported()
+    
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         max_steps=args.steps,
         per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=1 if args.dry_run else 4,
         learning_rate=args.learning_rate,
-        warmup_steps=1000,
-        bf16=True,                             # H100 native performance
-        logging_steps=50,
-        save_strategy="steps",
+        warmup_steps=0 if args.dry_run else 1000,
+        bf16=use_bf16,                         # Use bf16 only if supported (H100)
+        fp16=False,                            # Avoid fp16 on CPU
+        logging_steps=1 if args.dry_run else 50,
+        save_strategy="no" if args.dry_run else "steps",
         save_steps=1000,
         save_total_limit=2,                    # Keep disk usage < 50GB
-        push_to_hub=True,                      # Auto-sync to cloud
+        push_to_hub=False if args.dry_run else True, # Don't push tests to hub
         hub_model_id=args.hub_model_id,
-        report_to="tensorboard",
-        dataloader_num_workers=2,              # Efficient use of 3 cores
+        report_to="none" if args.dry_run else "tensorboard",
+        dataloader_num_workers=0 if args.dry_run else 2, 
         remove_unused_columns=False,
+        no_cuda=not has_cuda,                  # Force CPU if no GPU
     )
 
     # 5. Initialize Trainer
