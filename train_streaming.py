@@ -6,8 +6,13 @@ from transformers import (
     Wav2Vec2Processor, 
     TrainingArguments, 
     Trainer,
-    Wav2Vec2Config
+    Wav2Vec2Config,
+    TrainerCallback
 )
+try:
+    import psutil
+except ImportError:
+    psutil = None
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 import argparse
@@ -54,6 +59,28 @@ class DataCollatorCTCWithPadding:
 
         return batch
 
+# 3. System Monitoring Callback
+class MonitoringCallback(TrainerCallback):
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        stats = []
+        # GPU VRAM
+        if torch.cuda.is_available():
+            vram = torch.cuda.memory_reserved() / 1024**3
+            stats.append(f"VRAM: {vram:.1f}GB")
+        
+        # System RAM
+        if psutil:
+            ram = psutil.virtual_memory().percent
+            stats.append(f"RAM: {ram}%")
+            
+        # Disk Space
+        st = os.statvfs('/')
+        free_disk = (st.f_bavail * st.f_frsize) / 1024**3
+        stats.append(f"Disk: {free_disk:.1f}GB free")
+        
+        if stats:
+            print(f"\n📊 SYSTEM: {' | '.join(stats)}")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--hub_model_id", required=True, help="Hugging Face Hub repository ID")
@@ -63,6 +90,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--save_steps", type=int, default=1000)
     parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
     args = parser.parse_args()
 
@@ -136,14 +164,13 @@ def main():
         fp16=False,                            # Avoid fp16 on CPU
         logging_steps=1 if args.dry_run else 50,
         save_strategy="no" if args.dry_run else "steps",
-        save_steps=1000,
+        save_steps=args.save_steps,
         save_total_limit=2,                    # Keep disk usage < 50GB
         push_to_hub=False if args.dry_run else True, # Don't push tests to hub
         hub_model_id=args.hub_model_id,
-        report_to="none" if args.dry_run else "tensorboard",
+        report_to="none",
         dataloader_num_workers=0 if args.dry_run else 2, 
         remove_unused_columns=False,
-        no_cuda=not has_cuda,                  # Force CPU if no GPU
     )
 
     # 5. Initialize Trainer
@@ -152,6 +179,7 @@ def main():
         data_collator=DataCollatorCTCWithPadding(processor=processor),
         args=training_args,
         train_dataset=processed_dataset,
+        callbacks=[MonitoringCallback()],
     )
 
     # 6. Execute Training (Resume from Hub if possible)
