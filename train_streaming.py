@@ -93,6 +93,7 @@ def main():
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--save_steps", type=int, default=1000)
+    parser.add_argument("--push_hub", action="store_true", help="Push checkpoints to Hugging Face Hub")
     parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
     args = parser.parse_args()
 
@@ -232,7 +233,7 @@ def main():
         save_strategy="no" if args.dry_run else "steps",
         save_steps=args.save_steps,
         save_total_limit=2,                    # Keep disk usage < 50GB
-        push_to_hub=False if args.dry_run else True, # Don't push tests to hub
+        push_to_hub=args.push_hub, 
         hub_model_id=args.hub_model_id,
         report_to="none",
         dataloader_num_workers=0, 
