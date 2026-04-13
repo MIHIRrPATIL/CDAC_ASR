@@ -82,6 +82,12 @@ class MonitoringCallback(TrainerCallback):
             print(f"\n📊 SYSTEM: {' | '.join(stats)}")
 
 def main():
+    # Ensure NLTK resources used by g2p_en are available
+    import nltk
+    print("Checking NLTK resources...")
+    for res in ['averaged_perceptron_tagger', 'averaged_perceptron_tagger_eng', 'cmudict']:
+        nltk.download(res, quiet=True)
+    
     print(f"Current Working Directory: {os.getcwd()}")
     parser = argparse.ArgumentParser()
     parser.add_argument("--hub_model_id", required=True, help="Hugging Face Hub repository ID")
