@@ -23,6 +23,7 @@ nptel_embedder_checkpoints/
 local_model_optimized/
 my_local_model/
 phoneme_model_out/
+trained_models/
 
 # Data
 nptel_data/
@@ -38,11 +39,7 @@ corrected_txt/
 *.swo
 
 # Project specific
-*.dict
-output_full.dict
 phoneme2id.json
-# Note: Keep dicts if you want them in the repo, but often they are generated or large.
-# I will NOT ignore output_full.dict by default as it's needed for CPU inference.
 
 # Logs
 log/

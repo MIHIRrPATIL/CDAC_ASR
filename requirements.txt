@@ -1,15 +1,18 @@
-montreal-forced-aligner
+datasets==2.18.0
+transformers==4.38.2
+huggingface-hub==0.21.4
+httpx==0.26.0
 torch
 torchaudio
-transformers
-datasets
 soundfile
 sounddevice
-pronouncing
+numpy
 tqdm
-evaluate
-kalpy
-torchcodec
-accelerate>=0.26.0
+jiwer
 scipy
+accelerate>=0.26.0
 g2p-en
+pronouncing
+evaluate
+montreal-forced-aligner
+# Note: sounddevice on Linux requires 'sudo apt-get install libportaudio2'

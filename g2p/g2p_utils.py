@@ -6,12 +6,26 @@ try:
 except ImportError:
     G2p = None
 
+# Mapping from ARPAbet (g2p-en) to the specific IPA set used in the NPTEL model vocab
+ARPABET_TO_IPA = {
+    "AA": "É‘", "AE": "a", "AH": "É™", "AO": "É’", "AW": "aw", "AY": "aj",
+    "B": "b", "CH": "tÊƒ", "D": "É–", "DH": "dÌª", "EH": "É›", "ER": "Éœ",
+    "EY": "eË ", "F": "f", "G": "É¡", "HH": "h", "IH": "Éª", "IY": "iË ",
+    "JH": "dÊ’", "K": "k", "L": "l", "M": "m", "N": "n", "NG": "Å‹",
+    "OW": "oË ", "OY": "É”j", "P": "p", "R": "É¹", "S": "s", "SH": "Êƒ",
+    "T": "Êˆ", "TH": "tÌª", "UH": "ÊŠ", "UW": "Ê‰", "V": "Ê‹", "W": "Ê‹",
+    "Y": "j", "Z": "z", "ZH": "Ê’"
+}
+
+# Regex to strip common IPA modifiers not in the model vocab (stress marks, long marks, etc.)
+IPA_CLEAN_REGEX = re.compile(r'[ËˆË¹Ë’Ì€Ì„Ì¹Ìº]')
+
 class G2PManager:
     """
     Manages Grapheme-to-Phoneme conversion.
     Strategy: 
     1. Dictionary Lookup (MFA Gold Standard)
-    2. Neural Fallback (g2p-en)
+    2. Neural Fallback (g2p-en) -> Mapped to IPA
     3. Identity Mapping (Last Resort)
     """
     def __init__(self, dict_path=None):
@@ -43,7 +57,8 @@ class G2PManager:
                 parts = line.strip().split("\t")
                 if len(parts) >= 2:
                     word = parts[0].lower()
-                    phonemes = parts[1].split()
+                    # Apply IPA cleaning to dictionary phonemes as well
+                    phonemes = [IPA_CLEAN_REGEX.sub('', p) for p in parts[1].split()]
                     mapping[word] = phonemes
         return mapping
 
@@ -68,14 +83,26 @@ class G2PManager:
         if word in self.phoneme_dict:
             return self.phoneme_dict[word]
         
-        # 2. Second Priority: Neural G2P Fallback
+        # 2. Second Priority: Neural G2P Fallback + IPA Mapping
         if self.neural_g2p is not None:
-            # g2p-en returns phonemes in ARPAbet, might need mapping to IPA 
-            # if your model is strictly IPA. For now, we yield its prediction.
-            return self.neural_g2p(word)
+            # g2p-en returns phonemes in ARPAbet (with digits)
+            arpabet_phonemes = self.neural_g2p(word)
+            ipa_phonemes = []
+            for p in arpabet_phonemes:
+                # Strip digits (stress)
+                clean_p = re.sub(r'\d', '', p).upper()
+                # Map to model's IPA set
+                mapped = ARPABET_TO_IPA.get(clean_p, None)
+                if mapped:
+                    # Final clean (some mapped IPA might have extra marks)
+                    ipa_phonemes.append(IPA_CLEAN_REGEX.sub('', mapped))
+                elif clean_p.isalpha(): 
+                    # Last resort fallback (lowercase and clean)
+                    ipa_phonemes.append(IPA_CLEAN_REGEX.sub('', p.lower()))
+            
+            return ipa_phonemes
             
         # 3. Final Resort: Identity Mapping
-        print(f"Warning: OOV word '{word}' - using identity mapping.")
         return [word]
 
 if __name__ == "__main__":

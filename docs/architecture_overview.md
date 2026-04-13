@@ -27,9 +27,9 @@ The core model is a modified Wav2Vec2 architecture that uses a **Cosine Similari
 Engineered to handle the **NPTEL2020** dataset within strict compute/storage constraints.
 
 ### Streaming Data Loader
-- **Source:** Hugging Face `datasets` in `streaming=True` mode.
-- **Workflow:** Pulls shards from the cloud -> Decodes audio -> Preprocesses labels -> Discards raw files immediately.
-- **Disk Usage:** Minimal (~constant overhead regardless of dataset size).
+- **Source:** Hugging Face Hub (`skbose/indian-english-nptel-v0`) in `streaming=True` mode.
+- **Workflow:** Pulls shards from HF Hub, disables automatic `torchcodec` decoding to prevent driver incompatibilities, manually decodes raw bytes with `soundfile`, preprocesses audio, and discards raw data immediately.
+- **Advantages:** Neatly handles the 130GB+ dataset with proper interleaving without multi-TB downloading or RAM exhaustion. No local disk usage required.
 
 ### Session Resiliency (24-Hour Loop)
 - **Checkpointer:** Integrated with Hugging Face Hub.

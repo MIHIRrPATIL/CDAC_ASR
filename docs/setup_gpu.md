@@ -12,11 +12,16 @@ If you are on a fresh Ubuntu machine, run these commands to set up the environme
 # 1. Update system
 sudo apt-get update && sudo apt-get install -y git-lfs libsndfile1
 
-# 2. Install Python dependencies (into your existing environment)
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+# 2. Install Python dependencies
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
+pip uninstall torchcodec -y
+pip install soundfile
 
-# 3. Authenticate with Hugging Face (Crucial for checkpoint syncing)
+# 3. Download NLTK data for G2P
+python3 -c "import nltk; nltk.download('averaged_perceptron_tagger_eng')"
+
+# 4. Authenticate with Hugging Face (Crucial for checkpoint syncing)
 huggingface-cli login
 ```
 
@@ -24,9 +29,9 @@ huggingface-cli login
 
 | Issue | Cause | Solution |
 | :--- | :--- | :--- |
-| **CUDA Mismatch** | `conda` sometimes installs a private CUDA version that conflicts with the System/Driver version. | Use `pip install` inside the system Python or a simple `venv`. Avoid complex Conda environments on Linux GPUs unless necessary. |
-| **Slow Downloads** | Zenodo or HF Hub can be slow during the first run. | The `nptel_loader.py` is streaming, so it starts training as soon as the first 100MB is ready. Be patient for the first 60 seconds. |
-| **Missing Libraries** | `libsndfile1` is often missing on bare Linux. | Run `sudo apt-get install libsndfile1`. I have added this to the requirements check. |
+| **CUDA Mismatch** | `conda` sometimes installs a private CUDA version that conflicts with the System/Driver version (e.g., cu118). | Use `pip install torch==2.4.0+cu118` inside a simple `venv` without Conda if deploying on instances with older/strict driver requirements. |
+| **Pygilstate Crash (torchcodec)** | Datasets auto-uses `torchcodec` which is incompatible with `cu118` resulting in PyGILState release core dumps. | `pip uninstall torchcodec -y` and `pip install soundfile` to manually decode bytes (handled in `train_streaming.py`). |
+| **Missing Libraries** | `libsndfile1` is often missing on bare Linux. | Run `sudo apt-get install libsndfile1`. |
 
 ## 4. Why your local test was "stuck"
 Your local test log showed it was stuck in `ssl.py` / `socket.py`. This is **Normal**. 

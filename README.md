@@ -12,14 +12,12 @@ An advanced phoneme-level pronunciation correction system based on **Wav2Vec2** 
 ## 📂 Project Structure
 - `phoneme_embedder.py`: Core model architecture.
 - `train_streaming.py`: Training pipeline with HF Hub integration.
-- `nptel_loader.py`: Custom zero-disk dataset streamer.
 - `test_model.py`: Real-time inference and scoring script.
 - `audio_utils.py`: VAD and FFT preprocessing utilities.
 - `ScoreCalcs.py`: Phoneme alignment and scoring logic.
 - `export_for_local.py`: Script to prepare models for CPU/local use.
 - `processor_dir/`: Configuration for the Wav2Vec2 processor and tokenizer.
 - `g2p/`: Grapheme-to-Phoneme component (Dictionary, Utilities, Tests).
-- `download_scripts/`: Official NPTEL2020 dataset download scripts.
 - `docs/`: Technical reports and implementation details.
 
 ## 🛠️ Getting Started
@@ -27,6 +25,8 @@ An advanced phoneme-level pronunciation correction system based on **Wav2Vec2** 
 ### 1. Installation
 ```bash
 pip install -r requirements.txt
+pip install soundfile
+python3 -c "import nltk; nltk.download('averaged_perceptron_tagger_eng')"
 ```
 
 ### 2. Training (Streaming)
@@ -34,12 +34,19 @@ pip install -r requirements.txt
 python train_streaming.py --hub_model_id your-repo/nptel-embedder --batch_size 8 --steps 50000
 ```
 
-### 3. Testing / Evaluation
+### 3. Testing & Evaluation (Automated)
+Run this to calculate the **Phoneme Error Rate (PER)** on a portion of the dataset the model hasn't seen:
 ```bash
-python test_model.py --model_dir path_to_model --duration 4.0 --word because
+python3 evaluate_model.py --model_dir trained_models/20k_steps --num_samples 100 --skip 50000
 ```
 
-### 4. Local Export
+### 4. Interactive Live Test (Microphone)
+Run this for a friendly CLI menu to test with your own voice:
+```bash
+python3 cli_test_menu.py
+```
+
+### 5. Local Export
 ```bash
 python export_for_local.py --checkpoint path_to_checkpoint --output my_local_model
 ```

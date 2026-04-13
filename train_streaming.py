@@ -1,4 +1,5 @@
 import os
+import io
 import torch
 import torch.nn as nn
 from datasets import load_dataset, Audio
@@ -46,12 +47,11 @@ class DataCollatorCTCWithPadding:
             return_tensors="pt",
         )
         
-        with self.processor.as_target_processor():
-            labels_batch = self.processor.pad(
-                label_features,
-                padding=self.padding,
-                return_tensors="pt",
-            )
+        labels_batch = self.processor.tokenizer.pad(
+            label_features,
+            padding=self.padding,
+            return_tensors="pt",
+        )
 
         # Replace padding with -100 to ignore loss correctly
         labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
@@ -82,12 +82,14 @@ class MonitoringCallback(TrainerCallback):
             print(f"\n📊 SYSTEM: {' | '.join(stats)}")
 
 def main():
+    print(f"Current Working Directory: {os.getcwd()}")
     parser = argparse.ArgumentParser()
     parser.add_argument("--hub_model_id", required=True, help="Hugging Face Hub repository ID")
     parser.add_argument("--processor_dir", default="processor_dir", help="Path to local processor config")
     parser.add_argument("--dict_path", default="g2p/output_full.dict", help="Path to MFA dictionary for G2P")
     parser.add_argument("--output_dir", default="nptel_embedder_checkpoints")
     parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 4 (normal) or 1 (dry_run).")
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--save_steps", type=int, default=1000)
@@ -105,59 +107,123 @@ def main():
     g2p_manager = G2PManager(dict_path=args.dict_path)
 
     # 2. Load Model (Design A: Embedder)
-    # We use a base config but load into our custom class
-    config = Wav2Vec2Config.from_pretrained("facebook/wav2vec2-base")
-    config.vocab_size = len(processor.tokenizer)
-    config.pad_token_id = processor.tokenizer.pad_token_id
-    config.classifier_proj_size = 256 # As per architecture plan
+    print(f"🔍 Checking for weights in: {os.path.abspath(args.output_dir)}")
     
-    print("Initializing Wav2Vec2PhonemeEmbedder...")
-    model = Wav2Vec2PhonemeEmbedder(config)
+    model_path = "facebook/wav2vec2-base"
+    local_weights = None
+    
+    # Fuzzy Search: If literal path fails, look for anything similar in CWD
+    search_dirs = [args.output_dir]
+    if not os.path.exists(args.output_dir):
+        print(f"⚠️ Literal path {args.output_dir} not found. Searching CWD...")
+        all_items = os.listdir(".")
+        print(f"📁 CWD Contents: {all_items}")
+        for item in all_items:
+            if os.path.isdir(item) and "embedder_checkpoints" in item.lower():
+                print(f"✨ Found potential match: {item}")
+                search_dirs.append(item)
 
-    # 3. Custom NPTEL Loader using official download scripts
-    print(f"Initializing Audio Preprocessor (FFT + Silero VAD)...")
+    for s_dir in search_dirs:
+        if not os.path.exists(s_dir): continue
+        
+        # Check root of this dir
+        test_path = os.path.join(s_dir, "model.safetensors")
+        if os.path.exists(test_path):
+            local_weights = test_path
+            break
+            
+        # Check latest checkpoint subfolder
+        cpts = sorted([d for d in os.listdir(s_dir) if d.startswith("checkpoint")], 
+                      key=lambda x: int(x.split("-")[1]) if "-" in x else 0)
+        if cpts:
+            test_path = os.path.join(s_dir, cpts[-1], "model.safetensors")
+            if os.path.exists(test_path):
+                local_weights = test_path
+                break
+
+    if local_weights:
+        print(f"✅ Found local weights at: {local_weights}")
+        model_dir = os.path.dirname(local_weights)
+        print(f"🚀 Loading pre-trained state from {model_dir}...")
+        model = Wav2Vec2PhonemeEmbedder.from_pretrained(model_dir)
+    else:
+        print(f"❌ No local weights found. Initializing fresh model from {model_path}...")
+        config = Wav2Vec2Config.from_pretrained(model_path)
+        config.vocab_size = len(processor.tokenizer)
+        config.pad_token_id = processor.tokenizer.pad_token_id
+        config.classifier_proj_size = 256
+        model = Wav2Vec2PhonemeEmbedder(config)
+
+    # 3. Load NPTEL dataset from HuggingFace Hub (streaming = no disk usage!)
+    # We skip the Audio() decoder because it requires torchcodec (incompatible with cu118).
+    # Instead, we manually decode audio bytes with soundfile in prepare_dataset.
+    print("Loading NPTEL dataset from HuggingFace (streaming)...")
+    dataset = load_dataset(
+        "skbose/indian-english-nptel-v0",
+        split="train",
+        streaming=True,
+    )
+    # CRITICAL: Disable auto-decoding so HF doesn't try to use torchcodec
+    dataset = dataset.cast_column("audio", Audio(decode=False))
+    print("✓ HuggingFace NPTEL dataset loaded (streaming mode, raw audio bytes).")
+
+    print("Initializing Audio Preprocessor (FFT + Silero VAD)...")
     preprocessor_utils = AudioPreprocessor(sr=16000)
 
-    print(f"Initializing NPTELChunkedLoader using {args.dict_path}...")
-    from nptel_loader import NPTELChunkedLoader
-    
-    train_script = os.path.join("download_scripts", "download_train_data.sh")
-    if not os.path.exists(train_script):
-        # Fallback if scripts aren't in expected location
-        train_script = "download_scripts/download_train_data.sh"
-
-    loader = NPTELChunkedLoader(train_script)
-    dataset = loader.get_iterable_dataset()
+    import soundfile as sf
+    import numpy as np
 
     def prepare_dataset(batch):
-        # 1. Preprocess Audio (FFT Filter + VAD Trim)
-        raw_audio = batch["audio"]["array"]
-        clean_audio = preprocessor_utils.preprocess(raw_audio)
+        # 1. Decode audio bytes manually (bypass torchcodec requirement)
+        audio_data = batch["audio"]
+        if isinstance(audio_data, dict) and "bytes" in audio_data:
+            # Raw parquet format: {'bytes': b'...', 'path': '...'}
+            audio_array, sr = sf.read(io.BytesIO(audio_data["bytes"]))
+        elif isinstance(audio_data, dict) and "array" in audio_data:
+            # Already decoded (unlikely without torchcodec, but just in case)
+            audio_array = np.array(audio_data["array"])
+            sr = audio_data.get("sampling_rate", 16000)
+        else:
+            raise ValueError(f"Unexpected audio format: {type(audio_data)}")
         
-        # 2. Extract Features
+        # Resample to 16kHz if needed
+        if sr != 16000:
+            import librosa
+            audio_array = librosa.resample(audio_array, orig_sr=sr, target_sr=16000)
+        
+        # 2. Preprocess Audio (FFT Filter + VAD Trim)
+        clean_audio = preprocessor_utils.preprocess(audio_array)
+        
+        # 3. Extract Features
         batch["input_values"] = processor(clean_audio, sampling_rate=16_000).input_values[0]
         
-        # 3. Text to Phonemes
-        phonemes = g2p_manager.convert_sentence(batch["transcription"])
+        # 4. Text to Phonemes (uses "text" column from HF dataset)
+        text = batch.get("text", batch.get("transcription", ""))
+        phonemes = g2p_manager.convert_sentence(text)
         
-        # 4. Phonemes to IDs
-        with processor.as_target_processor():
-            batch["labels"] = processor(phonemes, is_split_into_words=True).input_ids
+        # 5. Phonemes to IDs (direct tokenizer call, as_target_processor is removed)
+        batch["labels"] = processor.tokenizer(phonemes, is_split_into_words=True).input_ids
             
         return batch
 
     # Apply preprocessing to stream
-    processed_dataset = dataset.map(prepare_dataset)
+    processed_dataset = dataset.map(prepare_dataset, remove_columns=dataset.column_names)
 
     # 4. Training Arguments (optimized for H100 but compatible with local CPU)
     has_cuda = torch.cuda.is_available()
     use_bf16 = has_cuda and torch.cuda.is_bf16_supported()
     
+    # Determine Grad Accum
+    if args.grad_accum is not None:
+        grad_accum_steps = args.grad_accum
+    else:
+        grad_accum_steps = 1 if args.dry_run else 4
+
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         max_steps=args.steps,
         per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=1 if args.dry_run else 4,
+        gradient_accumulation_steps=grad_accum_steps,
         learning_rate=args.learning_rate,
         warmup_steps=0 if args.dry_run else 1000,
         bf16=use_bf16,                         # Use bf16 only if supported (H100)
@@ -169,7 +235,7 @@ def main():
         push_to_hub=False if args.dry_run else True, # Don't push tests to hub
         hub_model_id=args.hub_model_id,
         report_to="none",
-        dataloader_num_workers=0 if args.dry_run else 2, 
+        dataloader_num_workers=0, 
         remove_unused_columns=False,
     )
 
@@ -182,14 +248,12 @@ def main():
         callbacks=[MonitoringCallback()],
     )
 
-    # 6. Execute Training (Resume from Hub if possible)
-    print("Starting training loop...")
-    checkpoint = None
-    if os.path.exists(args.output_dir) and any(d.startswith("checkpoint") for d in os.listdir(args.output_dir)):
-        checkpoint = True 
-        print(f"Resuming from local checkpoint in {args.output_dir}")
-    
-    trainer.train(resume_from_checkpoint=checkpoint)
+    # 6. Execute Training
+    # Note: We skip resume_from_checkpoint because loading optimizer.pt triggers
+    # a security block in transformers for Torch < 2.6.
+    # Since we loaded weights manually above, this correctly starts Stage 2.
+    print("Starting training loop (Stage 2 / Continued)...")
+    trainer.train()
 
     # Final Save
     trainer.save_model(args.output_dir)
