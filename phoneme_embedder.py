@@ -10,18 +10,21 @@ class Wav2Vec2PhonemeEmbedder(Wav2Vec2PreTrainedModel):
         self.wav2vec2 = Wav2Vec2Model(config)
         
         # 2. Audio projection to the embedding space
-        # Use config.classifier_proj_size if exists, else default to 256
         self.proj_size = getattr(config, "classifier_proj_size", 256)
         self.audio_proj = nn.Linear(config.hidden_size, self.proj_size)
         
+        # 2b. Dropout for anti-collapse (expert recommendation)
+        self.proj_dropout = nn.Dropout(p=0.1)
+        
         # 3. The Learnable Phoneme Dictionary
-        # Vocab size includes the CTC blank token (usually at index 0)
         self.vocab_size = config.vocab_size
         self.phoneme_embeddings = nn.Parameter(torch.randn(self.vocab_size, self.proj_size))
         
-        # 4. Temperature parameter to scale cosine similarity (learnable)
-        # Initialized to a value that gives a reasonable starting temperature (around 0.07)
+        # 4. Temperature parameter for cosine similarity (learnable)
         self.logit_scale = nn.Parameter(torch.ones([]) * torch.log(torch.tensor(1 / 0.07)))
+        
+        # 5. Optional CTC class weights (set externally by training script)
+        self.ctc_class_weights = None
 
         # Initialize weights
         self.post_init()
@@ -40,8 +43,8 @@ class Wav2Vec2PhonemeEmbedder(Wav2Vec2PreTrainedModel):
         )
         hidden_states = outputs[0]
         
-        # Project audio features to the embedding space
-        audio_features = self.audio_proj(hidden_states)
+        # Project audio features to the embedding space + dropout
+        audio_features = self.proj_dropout(self.audio_proj(hidden_states))
         
         # L2 Normalize audio and phoneme embeddings for Cosine Similarity
         audio_features = audio_features / (audio_features.norm(dim=-1, keepdim=True) + 1e-8)
@@ -64,11 +67,14 @@ class Wav2Vec2PhonemeEmbedder(Wav2Vec2PreTrainedModel):
             else:
                 input_lengths = torch.full((logits.shape[0],), logits.shape[1], device=logits.device, dtype=torch.long)
 
-            # 3. PyTorch CTCLoss expects log_probs in [Time, Batch, Vocab_Size]
-            log_probs = nn.functional.log_softmax(logits, dim=-1).transpose(0, 1)
+            # 3. Apply class weighting (anti-collapse: penalizes schwa dominance)
+            if self.ctc_class_weights is not None:
+                weights = self.ctc_class_weights.to(logits.device)
+                log_probs = nn.functional.log_softmax(logits + weights.log(), dim=-1).transpose(0, 1)
+            else:
+                log_probs = nn.functional.log_softmax(logits, dim=-1).transpose(0, 1)
 
             # 4. Calculate CTC Loss
-            # Blank token is usually 0 in Wav2Vec2 processors
             loss_fn = nn.CTCLoss(blank=self.config.pad_token_id or 0, zero_infinity=True)
             loss = loss_fn(log_probs, flattened_targets, input_lengths, target_lengths)
 

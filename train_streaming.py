@@ -59,8 +59,13 @@ class DataCollatorCTCWithPadding:
 
         return batch
 
-# 3. System Monitoring Callback
+# 3. System Monitoring + Early Collapse Detection Callback
 class MonitoringCallback(TrainerCallback):
+    def __init__(self, model=None, processor=None):
+        self.model = model
+        self.processor = processor
+        self._collapse_warnings = 0
+    
     def on_log(self, args, state, control, logs=None, **kwargs):
         stats = []
         # GPU VRAM
@@ -80,6 +85,36 @@ class MonitoringCallback(TrainerCallback):
         
         if stats:
             print(f"\n📊 SYSTEM: {' | '.join(stats)}")
+    
+    def on_step_end(self, args, state, control, model=None, **kwargs):
+        """Check for collapse every 500 steps (expert recommendation #5)."""
+        if state.global_step % 500 != 0 or state.global_step == 0:
+            return
+        
+        m = model or self.model
+        if m is None:
+            return
+        
+        try:
+            # Sample the phoneme embedding similarities to detect collapse
+            with torch.no_grad():
+                ph = m.phoneme_embeddings if hasattr(m, 'phoneme_embeddings') else m.module.phoneme_embeddings
+                ph_norm = ph / (ph.norm(dim=-1, keepdim=True) + 1e-8)
+                sim = torch.matmul(ph_norm, ph_norm.t())
+                # Check if embeddings are all too similar (collapse indicator)
+                off_diag = sim - torch.eye(sim.size(0), device=sim.device)
+                avg_sim = off_diag.abs().mean().item()
+                
+                if avg_sim > 0.8:
+                    self._collapse_warnings += 1
+                    print(f"\n⚠️  COLLAPSE WARNING (step {state.global_step}): "
+                          f"Phoneme embeddings avg similarity = {avg_sim:.3f} (>0.8). "
+                          f"Model may be collapsing! [{self._collapse_warnings} warnings]")
+                else:
+                    print(f"\n✅ HEALTH CHECK (step {state.global_step}): "
+                          f"Phoneme embedding diversity = {1-avg_sim:.3f} (healthy)")
+        except Exception:
+            pass  # Don't crash training for monitoring
 
 def main():
     # Ensure NLTK resources used by g2p_en are available
@@ -97,7 +132,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 4 (normal) or 1 (dry_run).")
     parser.add_argument("--steps", type=int, default=50000)
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--save_steps", type=int, default=1000)
     parser.add_argument("--push_hub", action="store_true", help="Push checkpoints to Hugging Face Hub")
     parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
@@ -232,13 +267,14 @@ def main():
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=grad_accum_steps,
         learning_rate=args.learning_rate,
-        warmup_steps=0 if args.dry_run else 1000,
-        bf16=use_bf16,                         # Use bf16 only if supported (H100)
-        fp16=False,                            # Avoid fp16 on CPU
+        warmup_steps=0 if args.dry_run else 8500,  # 10% of 85k (expert rec)
+        max_grad_norm=1.0,                         # Gradient clipping (expert rec)
+        bf16=use_bf16,
+        fp16=False,
         logging_steps=1 if args.dry_run else 50,
         save_strategy="no" if args.dry_run else "steps",
         save_steps=args.save_steps,
-        save_total_limit=2,                    # Keep disk usage < 50GB
+        save_total_limit=2,
         push_to_hub=args.push_hub, 
         hub_model_id=args.hub_model_id,
         report_to="none",
@@ -246,26 +282,47 @@ def main():
         remove_unused_columns=False,
     )
 
+    # ── CTC Class Weighting (expert rec: anti-collapse) ──
+    # Compute inverse-frequency weights based on the phoneme vocab.
+    # Schwa (ə) is the most frequent phoneme in Indian English.
+    # This biases the model AWAY from over-predicting common phonemes.
+    import json as _json
+    vocab_path = os.path.join(args.processor_dir, "vocab.json")
+    if os.path.exists(vocab_path):
+        with open(vocab_path, 'r', encoding='utf8') as f:
+            vocab = _json.load(f)
+        num_classes = len(vocab)
+        # Heuristic: Schwa gets weight 0.3, blank/unk get 1.0, rest get 1.0
+        # We use a simple prior: schwa ~30% of tokens, so downweight it.
+        weights = torch.ones(num_classes)
+        schwa_ids = [v for k, v in vocab.items() if k in ('ə', 'É™')]
+        for sid in schwa_ids:
+            weights[sid] = 0.3
+        model.ctc_class_weights = weights
+        print(f"✅ CTC class weights set: {num_classes} classes, schwa weight=0.3")
+    else:
+        print(f"⚠️ No vocab.json at {vocab_path}, skipping class weighting.")
+
     # 5. Initialize Trainer
     trainer = Trainer(
         model=model,
         data_collator=DataCollatorCTCWithPadding(processor=processor),
         args=training_args,
         train_dataset=processed_dataset,
-        callbacks=[MonitoringCallback()],
+        callbacks=[MonitoringCallback(model=model, processor=processor)],
     )
 
     # 6. Execute Training
-    # Note: We skip resume_from_checkpoint because loading optimizer.pt triggers
-    # a security block in transformers for Torch < 2.6.
-    # Since we loaded weights manually above, this correctly starts Stage 2.
-    print("Starting training loop (Stage 2 / Continued)...")
+    print("Starting training loop (Phase 4: Anti-Collapse)...")
+    print(f"  LR: {args.learning_rate}, Warmup: 8500, Grad Clip: 1.0")
+    print(f"  Effective Batch: {args.batch_size * grad_accum_steps}")
     trainer.train()
 
     # Final Save
     trainer.save_model(args.output_dir)
     processor.save_pretrained(args.output_dir)
-    trainer.push_to_hub()
+    if args.push_hub:
+        trainer.push_to_hub()
 
 if __name__ == "__main__":
     main()
