@@ -15,4 +15,10 @@ g2p-en
 pronouncing
 evaluate
 montreal-forced-aligner
+python-Levenshtein
+fastdtw
 # Note: sounddevice on Linux requires 'sudo apt-get install libportaudio2'
+fastapi
+uvicorn
+python-multipart
+pydantic

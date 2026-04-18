@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 .Python
 env/
+.env
 venv/
 bin/
 lib/
@@ -17,7 +18,8 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
-
+.planning/
+sample_dataset/
 # Model Checkpoints
 nptel_embedder_checkpoints/
 local_model_optimized/

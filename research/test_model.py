@@ -231,7 +231,11 @@ Examples:
     input_values = inputs.input_values.to(device)
     
     with torch.no_grad():
-        logits = model(input_values).logits
+        outputs = model(input_values)
+        if isinstance(outputs, dict):
+            logits = outputs["logits"]
+        else:
+            logits = outputs.logits
     
     pred_ids = torch.argmax(logits, dim=-1)
     pred_phonemes_raw = [
