@@ -8,17 +8,21 @@ except ImportError:
 
 # Mapping from ARPAbet (g2p-en) to the specific IPA set used in the NPTEL model vocab
 ARPABET_TO_IPA = {
-    "AA": "É‘", "AE": "a", "AH": "É™", "AO": "É’", "AW": "aw", "AY": "aj",
-    "B": "b", "CH": "tÊƒ", "D": "É–", "DH": "dÌª", "EH": "É›", "ER": "Éœ",
-    "EY": "eË ", "F": "f", "G": "É¡", "HH": "h", "IH": "Éª", "IY": "iË ",
-    "JH": "dÊ’", "K": "k", "L": "l", "M": "m", "N": "n", "NG": "Å‹",
-    "OW": "oË ", "OY": "É”j", "P": "p", "R": "É¹", "S": "s", "SH": "Êƒ",
-    "T": "Êˆ", "TH": "tÌª", "UH": "ÊŠ", "UW": "Ê‰", "V": "Ê‹", "W": "Ê‹",
-    "Y": "j", "Z": "z", "ZH": "Ê’"
+    "AA": "ɑ", "AE": "a", "AH": "ə", "AO": "ɒ", "AW": "aw", "AY": "aj",
+    "B": "b", "CH": "tʃ", "D": "ɖ", "DH": "d̪", "EH": "ɛ", "ER": "ɜ",
+    "EY": "eː", "F": "f", "G": "ɡ", "HH": "h", "IH": "ɪ", "IY": "iː",
+    "JH": "dʒ", "K": "k", "L": "l", "M": "m", "N": "n", "NG": "ŋ",
+    "OW": "oː", "OY": "ɔj", "P": "p", "R": "ɹ", "S": "s", "SH": "ʃ",
+    "T": "ʈ", "TH": "t̪", "UH": "ʊ", "UW": "ʉ", "V": "ʋ", "W": "ʋ",
+    "Y": "j", "Z": "z", "ZH": "ʒ"
 }
 
-# Regex to strip common IPA modifiers not in the model vocab (stress marks, long marks, etc.)
-IPA_CLEAN_REGEX = re.compile(r'[ËˆË¹Ë’Ì€Ì„Ì¹Ìº]')
+# Regex to strip common IPA stress marks not in the model vocab.
+# We KEEP the length mark (ː) because the model vocab includes tokens like eː, iː.
+IPA_CLEAN_REGEX = re.compile(r'[ˈˌ]')
+
+def clean_phoneme(p):
+    return IPA_CLEAN_REGEX.sub('', p)
 
 class G2PManager:
     """
@@ -58,7 +62,7 @@ class G2PManager:
                 if len(parts) >= 2:
                     word = parts[0].lower()
                     # Apply IPA cleaning to dictionary phonemes as well
-                    phonemes = [IPA_CLEAN_REGEX.sub('', p) for p in parts[1].split()]
+                    phonemes = [clean_phoneme(p) for p in parts[1].split()]
                     mapping[word] = phonemes
         return mapping
 
@@ -95,10 +99,10 @@ class G2PManager:
                 mapped = ARPABET_TO_IPA.get(clean_p, None)
                 if mapped:
                     # Final clean (some mapped IPA might have extra marks)
-                    ipa_phonemes.append(IPA_CLEAN_REGEX.sub('', mapped))
+                    ipa_phonemes.append(clean_phoneme(mapped))
                 elif clean_p.isalpha(): 
                     # Last resort fallback (lowercase and clean)
-                    ipa_phonemes.append(IPA_CLEAN_REGEX.sub('', p.lower()))
+                    ipa_phonemes.append(clean_phoneme(p.lower()))
             
             return ipa_phonemes
             

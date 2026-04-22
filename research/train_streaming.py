@@ -2,6 +2,9 @@ import os
 import io
 import torch
 import torch.nn as nn
+import queue
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datasets import load_dataset, Audio
 from transformers import (
     Wav2Vec2Processor, 
@@ -19,6 +22,8 @@ from typing import Any, Dict, List, Optional, Union
 import argparse
 import json
 import re
+import soundfile as sf
+import numpy as np
 
 # Import G2P utility
 from g2p.g2p_utils import G2PManager
@@ -116,6 +121,125 @@ class MonitoringCallback(TrainerCallback):
         except Exception:
             pass  # Don't crash training for monitoring
 
+# ── Multi-Threaded Prefetch Dataset ──────────────────────────────────────────
+# Replaces the single-threaded .map() with a parallel preprocessing pipeline.
+# Each worker thread gets its own Silero VAD instance; the shared processor
+# and g2p_manager are GIL-safe (numpy/C calls release the GIL).
+
+class PrefetchDataset(torch.utils.data.IterableDataset):
+    """Multi-threaded preprocessing wrapper for HF streaming datasets.
+    
+    Architecture:
+        feeder thread  ──▶  sample_queue  ──▶  N worker threads  ──▶  result_queue  ──▶  DataLoader
+    
+    Each worker thread owns its own AudioPreprocessor (Silero VAD model)
+    to avoid thread-safety issues with VAD internal state.
+    """
+
+    _DONE = object()  # Sentinel for worker completion
+
+    def __init__(self, hf_stream, processor, g2p_manager, 
+                 num_workers=8, prefetch_size=256):
+        super().__init__()
+        self.hf_stream = hf_stream
+        self.processor = processor
+        self.g2p_manager = g2p_manager
+        self.num_workers = num_workers
+        self.prefetch_size = prefetch_size
+
+    @staticmethod
+    def _process_sample(raw, preprocessor, processor, g2p_manager):
+        """Preprocess a single raw sample. Runs in a worker thread."""
+        # 1. Decode audio bytes manually (bypass torchcodec requirement)
+        audio_data = raw["audio"]
+        if isinstance(audio_data, dict) and "bytes" in audio_data:
+            audio_array, sr = sf.read(io.BytesIO(audio_data["bytes"]))
+        elif isinstance(audio_data, dict) and "array" in audio_data:
+            audio_array = np.array(audio_data["array"])
+            sr = audio_data.get("sampling_rate", 16000)
+        else:
+            raise ValueError(f"Unexpected audio format: {type(audio_data)}")
+
+        # 2. Resample to 16kHz if needed
+        if sr != 16000:
+            import librosa
+            audio_array = librosa.resample(audio_array, orig_sr=sr, target_sr=16000)
+
+        # 3. Preprocess Audio (FFT Filter + VAD Trim)
+        clean_audio = preprocessor.preprocess(audio_array)
+
+        # 4. Extract Features
+        input_values = processor(clean_audio, sampling_rate=16_000).input_values[0]
+
+        # 5. Text to Phonemes
+        text = raw.get("text", raw.get("transcription", ""))
+        phonemes = g2p_manager.convert_sentence(text)
+
+        # 6. Phonemes to IDs
+        labels = processor.tokenizer(phonemes, is_split_into_words=True).input_ids
+
+        return {"input_values": input_values, "labels": labels}
+
+    def __iter__(self):
+        sample_q = queue.Queue(maxsize=self.prefetch_size * 2)
+        result_q = queue.Queue(maxsize=self.prefetch_size)
+        skip_count = [0]
+
+        def worker():
+            """Worker thread: owns a private AudioPreprocessor + Silero VAD."""
+            local_preprocessor = AudioPreprocessor(sr=16000)
+            while True:
+                raw = sample_q.get()
+                if raw is None:  # Poison pill
+                    break
+                try:
+                    processed = self._process_sample(
+                        raw, local_preprocessor, self.processor, self.g2p_manager
+                    )
+                    result_q.put(processed)
+                except Exception as e:
+                    skip_count[0] += 1
+                    if skip_count[0] <= 10 or skip_count[0] % 100 == 0:
+                        print(f"⚠️  Skipping sample ({skip_count[0]} total): {e}")
+            result_q.put(self._DONE)
+
+        def feeder():
+            """Feeder thread: reads from HF stream, feeds sample_q."""
+            try:
+                for sample in self.hf_stream:
+                    sample_q.put(sample)
+            finally:
+                # Send poison pills to all workers
+                for _ in range(self.num_workers):
+                    sample_q.put(None)
+
+        # Launch feeder
+        feeder_t = threading.Thread(target=feeder, daemon=True, name="prefetch-feeder")
+        feeder_t.start()
+
+        # Launch workers
+        workers = []
+        for i in range(self.num_workers):
+            t = threading.Thread(target=worker, daemon=True, name=f"prefetch-worker-{i}")
+            t.start()
+            workers.append(t)
+
+        print(f"🚀 PrefetchDataset: {self.num_workers} workers, "
+              f"prefetch buffer={self.prefetch_size}")
+
+        # Yield results until all workers signal DONE
+        done_count = 0
+        while done_count < self.num_workers:
+            item = result_q.get()
+            if item is self._DONE:
+                done_count += 1
+            else:
+                yield item
+
+        if skip_count[0] > 0:
+            print(f"📊 PrefetchDataset: skipped {skip_count[0]} bad samples total.")
+
+
 def main():
     # Ensure NLTK resources used by g2p_en are available
     import nltk
@@ -129,8 +253,10 @@ def main():
     parser.add_argument("--processor_dir", default="processor_dir", help="Path to local processor config")
     parser.add_argument("--dict_path", default="g2p/output_full.dict", help="Path to MFA dictionary for G2P")
     parser.add_argument("--output_dir", default="nptel_embedder_checkpoints")
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 4 (normal) or 1 (dry_run).")
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 2 (normal) or 1 (dry_run).")
+    parser.add_argument("--num_workers", type=int, default=12, help="CPU worker threads for preprocessing (default: 12 for multi-core).")
+    parser.add_argument("--prefetch", type=int, default=256, help="Prefetch buffer size (preprocessed samples held in RAM).")
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--save_steps", type=int, default=1000)
@@ -198,7 +324,7 @@ def main():
 
     # 3. Load NPTEL dataset from HuggingFace Hub (streaming = no disk usage!)
     # We skip the Audio() decoder because it requires torchcodec (incompatible with cu118).
-    # Instead, we manually decode audio bytes with soundfile in prepare_dataset.
+    # Instead, we manually decode audio bytes with soundfile in PrefetchDataset workers.
     print("Loading NPTEL dataset from HuggingFace (streaming)...")
     dataset = load_dataset(
         "skbose/indian-english-nptel-v0",
@@ -209,47 +335,19 @@ def main():
     dataset = dataset.cast_column("audio", Audio(decode=False))
     print("✓ HuggingFace NPTEL dataset loaded (streaming mode, raw audio bytes).")
 
-    print("Initializing Audio Preprocessor (FFT + Silero VAD)...")
-    preprocessor_utils = AudioPreprocessor(sr=16000)
-
-    import soundfile as sf
-    import numpy as np
-
-    def prepare_dataset(batch):
-        # 1. Decode audio bytes manually (bypass torchcodec requirement)
-        audio_data = batch["audio"]
-        if isinstance(audio_data, dict) and "bytes" in audio_data:
-            # Raw parquet format: {'bytes': b'...', 'path': '...'}
-            audio_array, sr = sf.read(io.BytesIO(audio_data["bytes"]))
-        elif isinstance(audio_data, dict) and "array" in audio_data:
-            # Already decoded (unlikely without torchcodec, but just in case)
-            audio_array = np.array(audio_data["array"])
-            sr = audio_data.get("sampling_rate", 16000)
-        else:
-            raise ValueError(f"Unexpected audio format: {type(audio_data)}")
-        
-        # Resample to 16kHz if needed
-        if sr != 16000:
-            import librosa
-            audio_array = librosa.resample(audio_array, orig_sr=sr, target_sr=16000)
-        
-        # 2. Preprocess Audio (FFT Filter + VAD Trim)
-        clean_audio = preprocessor_utils.preprocess(audio_array)
-        
-        # 3. Extract Features
-        batch["input_values"] = processor(clean_audio, sampling_rate=16_000).input_values[0]
-        
-        # 4. Text to Phonemes (uses "text" column from HF dataset)
-        text = batch.get("text", batch.get("transcription", ""))
-        phonemes = g2p_manager.convert_sentence(text)
-        
-        # 5. Phonemes to IDs (direct tokenizer call, as_target_processor is removed)
-        batch["labels"] = processor.tokenizer(phonemes, is_split_into_words=True).input_ids
-            
-        return batch
-
-    # Apply preprocessing to stream
-    processed_dataset = dataset.map(prepare_dataset, remove_columns=dataset.column_names)
+    # 3b. Wrap in multi-threaded prefetch pipeline
+    # Each of the N worker threads gets its own Silero VAD instance.
+    # The processor and g2p_manager are shared (GIL-safe for numpy/C calls).
+    num_workers = 1 if args.dry_run else args.num_workers
+    prefetch = 4 if args.dry_run else args.prefetch
+    print(f"Initializing PrefetchDataset ({num_workers} workers, buffer={prefetch})...")
+    processed_dataset = PrefetchDataset(
+        hf_stream=dataset,
+        processor=processor,
+        g2p_manager=g2p_manager,
+        num_workers=num_workers,
+        prefetch_size=prefetch,
+    )
 
     # 4. Training Arguments (optimized for H100 but compatible with local CPU)
     has_cuda = torch.cuda.is_available()
@@ -259,7 +357,7 @@ def main():
     if args.grad_accum is not None:
         grad_accum_steps = args.grad_accum
     else:
-        grad_accum_steps = 1 if args.dry_run else 4
+        grad_accum_steps = 1 if args.dry_run else 2
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -291,7 +389,7 @@ def main():
     if os.path.exists(vocab_path):
         with open(vocab_path, 'r', encoding='utf8') as f:
             vocab = _json.load(f)
-        num_classes = len(vocab)
+        num_classes = len(processor.tokenizer)
         # Heuristic: Schwa gets weight 0.3, blank/unk get 1.0, rest get 1.0
         # We use a simple prior: schwa ~30% of tokens, so downweight it.
         weights = torch.ones(num_classes)
