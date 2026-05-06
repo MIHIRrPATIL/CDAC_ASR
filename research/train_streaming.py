@@ -393,7 +393,7 @@ def main():
         # Heuristic: Schwa gets weight 0.3, blank/unk get 1.0, rest get 1.0
         # We use a simple prior: schwa ~30% of tokens, so downweight it.
         weights = torch.ones(num_classes)
-        schwa_ids = [v for k, v in vocab.items() if k in ('ə', 'É™')]
+        schwa_ids = [v for k, v in vocab.items() if k == 'ə']
         for sid in schwa_ids:
             weights[sid] = 0.3
         model.ctc_class_weights = weights

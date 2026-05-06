@@ -5,7 +5,7 @@ import json
 import argparse
 import soundfile as sf
 import io
-import numpy as w
+import numpy as np
 import traceback
 import re
 import sys

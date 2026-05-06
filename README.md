@@ -62,3 +62,17 @@ For deeper technical insights, check the `docs/` folder:
 ## 📡 Hardware Requirements
 - **Training:** Recommended NVIDIA GPU with 24GB+ VRAM (optimized for H100).
 - **Inference:** Runs on standard Laptop CPUs or modest Cloud server GPUs.
+
+
+## To run the training model use 
+```bash 
+    python train_streaming.py \
+    --hub_model_id your-repo/nptel-embedder \
+    --batch_size 16 \
+    --grad_accum 2 \
+    --num_workers 32 \
+    --prefetch 256 \
+    --steps 85000 \
+    --save_steps 2000 \
+    --push_hub
+```

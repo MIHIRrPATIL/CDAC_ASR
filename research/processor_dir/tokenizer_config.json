@@ -33,7 +33,7 @@
       "special": false
     },
     "6": {
-      "content": "bÊ²",
+      "content": "bʲ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -41,7 +41,7 @@
       "special": false
     },
     "8": {
-      "content": "cÊ·",
+      "content": "cʷ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -49,7 +49,7 @@
       "special": false
     },
     "9": {
-      "content": "dÊ’",
+      "content": "dʒ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -57,7 +57,7 @@
       "special": false
     },
     "10": {
-      "content": "dÌª",
+      "content": "d̪",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -65,7 +65,7 @@
       "special": false
     },
     "11": {
-      "content": "eË",
+      "content": "eː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -73,7 +73,7 @@
       "special": false
     },
     "13": {
-      "content": "fÊ²",
+      "content": "fʲ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -81,7 +81,7 @@
       "special": false
     },
     "16": {
-      "content": "iË",
+      "content": "iː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -89,7 +89,7 @@
       "special": false
     },
     "19": {
-      "content": "kÊ·",
+      "content": "kʷ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -97,7 +97,7 @@
       "special": false
     },
     "22": {
-      "content": "mÊ²",
+      "content": "mʲ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -105,7 +105,7 @@
       "special": false
     },
     "24": {
-      "content": "oË",
+      "content": "oː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -113,7 +113,7 @@
       "special": false
     },
     "26": {
-      "content": "pÊ²",
+      "content": "pʲ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -121,7 +121,7 @@
       "special": false
     },
     "28": {
-      "content": "tÊƒ",
+      "content": "tʃ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -129,7 +129,7 @@
       "special": false
     },
     "29": {
-      "content": "tÌª",
+      "content": "t̪",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -137,7 +137,7 @@
       "special": false
     },
     "31": {
-      "content": "Ã§",
+      "content": "ç",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -145,7 +145,7 @@
       "special": false
     },
     "32": {
-      "content": "Å‹",
+      "content": "ŋ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -153,7 +153,7 @@
       "special": false
     },
     "33": {
-      "content": "É¡",
+      "content": "ɡ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -161,7 +161,7 @@
       "special": false
     },
     "34": {
-      "content": "É¡Ê·",
+      "content": "ɡʷ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -169,7 +169,7 @@
       "special": false
     },
     "35": {
-      "content": "Éª",
+      "content": "ɪ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -177,7 +177,7 @@
       "special": false
     },
     "36": {
-      "content": "É²",
+      "content": "ɲ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -185,7 +185,7 @@
       "special": false
     },
     "37": {
-      "content": "É¹",
+      "content": "ɹ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -193,7 +193,7 @@
       "special": false
     },
     "38": {
-      "content": "É¾",
+      "content": "ɾ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -201,7 +201,7 @@
       "special": false
     },
     "39": {
-      "content": "Éœ",
+      "content": "ɜ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -209,7 +209,7 @@
       "special": false
     },
     "40": {
-      "content": "ÉœË",
+      "content": "ɜː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -217,7 +217,7 @@
       "special": false
     },
     "41": {
-      "content": "ÉŸ",
+      "content": "ɟ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -225,7 +225,7 @@
       "special": false
     },
     "42": {
-      "content": "ÉŸÊ·",
+      "content": "ɟʷ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -233,7 +233,7 @@
       "special": false
     },
     "43": {
-      "content": "É–",
+      "content": "ɖ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -241,7 +241,7 @@
       "special": false
     },
     "44": {
-      "content": "É‘",
+      "content": "ɑ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -249,7 +249,7 @@
       "special": false
     },
     "45": {
-      "content": "É‘Ë",
+      "content": "ɑː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -257,7 +257,7 @@
       "special": false
     },
     "46": {
-      "content": "É’",
+      "content": "ɒ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -265,7 +265,7 @@
       "special": false
     },
     "47": {
-      "content": "É’Ë",
+      "content": "ɒː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -273,7 +273,7 @@
       "special": false
     },
     "48": {
-      "content": "É”j",
+      "content": "ɔj",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -281,7 +281,7 @@
       "special": false
     },
     "49": {
-      "content": "É›",
+      "content": "ɛ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -289,7 +289,7 @@
       "special": false
     },
     "50": {
-      "content": "É›Ë",
+      "content": "ɛː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -297,7 +297,7 @@
       "special": false
     },
     "51": {
-      "content": "É™",
+      "content": "ə",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -305,7 +305,7 @@
       "special": false
     },
     "52": {
-      "content": "ÊŠ",
+      "content": "ʊ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -313,7 +313,7 @@
       "special": false
     },
     "53": {
-      "content": "ÊŽ",
+      "content": "ʎ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -321,7 +321,7 @@
       "special": false
     },
     "54": {
-      "content": "Êƒ",
+      "content": "ʃ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -329,7 +329,7 @@
       "special": false
     },
     "55": {
-      "content": "Êˆ",
+      "content": "ʈ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -337,7 +337,7 @@
       "special": false
     },
     "56": {
-      "content": "ÊˆÊ²",
+      "content": "ʈʲ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -345,7 +345,7 @@
       "special": false
     },
     "57": {
-      "content": "ÊˆÊ·",
+      "content": "ʈʷ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -353,7 +353,7 @@
       "special": false
     },
     "58": {
-      "content": "Ê’",
+      "content": "ʒ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -361,7 +361,7 @@
       "special": false
     },
     "59": {
-      "content": "Ê‰",
+      "content": "ʉ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -369,7 +369,7 @@
       "special": false
     },
     "60": {
-      "content": "Ê‰Ë",
+      "content": "ʉː",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
@@ -377,7 +377,7 @@
       "special": false
     },
     "61": {
-      "content": "Ê‹",
+      "content": "ʋ",
       "lstrip": true,
       "normalized": false,
       "rstrip": true,
