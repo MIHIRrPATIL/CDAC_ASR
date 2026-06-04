@@ -65,34 +65,62 @@ class DataCollatorCTCWithPadding:
         return batch
 
 # 3. System Monitoring + Early Collapse Detection Callback
-class MonitoringCallback(TrainerCallback):
-    def __init__(self, model=None, processor=None):
+# 3. Model Health Check & Real-time Verification Callback
+class ModelHealthCheckCallback(TrainerCallback):
+    def __init__(self, model=None, processor=None, val_sample=None, dataset=None):
         self.model = model
         self.processor = processor
-        self._collapse_warnings = 0
-    
+        self.val_sample = val_sample
+        self.dataset = dataset
+        self.consecutive_collapse_count = 0
+        self.consecutive_blank_count = 0
+        self.consecutive_bad_per_count = 0
+
+    def _save_health_checkpoint(self, model, args, reason):
+        print(f"\n🚨 [HEALTH CHECK] CRITICAL: Stopping training due to: {reason}")
+        save_path = os.path.join(args.output_dir, "early_stop_health_check")
+        print(f"💾 Saving model and processor to {save_path}...")
+        os.makedirs(save_path, exist_ok=True)
+        
+        m_to_save = model.module if hasattr(model, "module") else model
+        if hasattr(m_to_save, "save_pretrained"):
+            m_to_save.save_pretrained(save_path)
+        else:
+            torch.save(m_to_save.state_dict(), os.path.join(save_path, "pytorch_model.bin"))
+            
+        if self.processor is not None:
+            self.processor.save_pretrained(save_path)
+        print("✅ Model weights successfully preserved!")
+
     def on_log(self, args, state, control, logs=None, **kwargs):
         stats = []
-        # GPU VRAM
         if torch.cuda.is_available():
             vram = torch.cuda.memory_reserved() / 1024**3
             stats.append(f"VRAM: {vram:.1f}GB")
         
-        # System RAM
         if psutil:
             ram = psutil.virtual_memory().percent
             stats.append(f"RAM: {ram}%")
             
-        # Disk Space
         st = os.statvfs('/')
         free_disk = (st.f_bavail * st.f_frsize) / 1024**3
         stats.append(f"Disk: {free_disk:.1f}GB free")
         
         if stats:
             print(f"\n📊 SYSTEM: {' | '.join(stats)}")
-    
+            
+        # Real-time Loss NaN/Inf Check
+        if logs is not None:
+            loss = logs.get("loss")
+            if loss is not None:
+                import math
+                loss_val = float(loss)
+                if math.isnan(loss_val) or math.isinf(loss_val):
+                    self._save_health_checkpoint(kwargs.get("model") or self.model, args, f"NaN or Inf loss detected: {loss_val}")
+                    control.should_training_stop = True
+
     def on_step_end(self, args, state, control, model=None, **kwargs):
-        """Check for collapse every 500 steps (expert recommendation #5)."""
+        """Check model representation diversity and transcription correctness every 500 steps."""
         if state.global_step % 500 != 0 or state.global_step == 0:
             return
         
@@ -100,26 +128,119 @@ class MonitoringCallback(TrainerCallback):
         if m is None:
             return
         
+        # 0. Check skipped/empty samples ratio to detect data degradation
+        if self.dataset is not None and hasattr(self.dataset, 'stats'):
+            with getattr(self.dataset, 'stats_lock', threading.Lock()):
+                skip = self.dataset.stats.get('skip_count', 0)
+                yielded = self.dataset.stats.get('yielded_count', 0)
+            total = skip + yielded
+            if total > 50:  # Allow warmup to avoid early false triggers
+                skip_ratio = skip / total
+                if skip_ratio > 0.15:
+                    self._save_health_checkpoint(
+                        m,
+                        args,
+                        f"Skipped sample ratio too high: {skip_ratio:.2%} ({skip}/{total}). Possible data corruption."
+                    )
+                    control.should_training_stop = True
+                    return
+
+        # 1. Phoneme Embedding Similarity Collapse Check
         try:
-            # Sample the phoneme embedding similarities to detect collapse
             with torch.no_grad():
                 ph = m.phoneme_embeddings if hasattr(m, 'phoneme_embeddings') else m.module.phoneme_embeddings
                 ph_norm = ph / (ph.norm(dim=-1, keepdim=True) + 1e-8)
                 sim = torch.matmul(ph_norm, ph_norm.t())
-                # Check if embeddings are all too similar (collapse indicator)
                 off_diag = sim - torch.eye(sim.size(0), device=sim.device)
                 avg_sim = off_diag.abs().mean().item()
                 
-                if avg_sim > 0.8:
-                    self._collapse_warnings += 1
+                if avg_sim > 0.85:
+                    self.consecutive_collapse_count += 1
                     print(f"\n⚠️  COLLAPSE WARNING (step {state.global_step}): "
-                          f"Phoneme embeddings avg similarity = {avg_sim:.3f} (>0.8). "
-                          f"Model may be collapsing! [{self._collapse_warnings} warnings]")
+                          f"Phoneme embeddings avg similarity = {avg_sim:.3f} (>0.85). "
+                          f"[{self.consecutive_collapse_count}/2 collapse warnings]")
+                    if self.consecutive_collapse_count >= 2:
+                        self._save_health_checkpoint(m, args, f"Model collapsed (Avg similarity = {avg_sim:.3f})")
+                        control.should_training_stop = True
+                        return
                 else:
+                    self.consecutive_collapse_count = 0
                     print(f"\n✅ HEALTH CHECK (step {state.global_step}): "
                           f"Phoneme embedding diversity = {1-avg_sim:.3f} (healthy)")
-        except Exception:
-            pass  # Don't crash training for monitoring
+        except Exception as e:
+            print(f"Warning inside Embedding Collapse checker: {e}")
+
+        # 2. Real-time Output Validation (Phoneme Error Rate & Blank Collapse Checks)
+        if self.val_sample is not None:
+            try:
+                device = m.device if hasattr(m, "device") else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                input_values = torch.tensor(self.val_sample["input_values"], dtype=torch.float32).unsqueeze(0).to(device)
+                ref_ids = self.val_sample["labels"]
+                
+                m.eval()
+                with torch.no_grad():
+                    outputs = m(input_values)
+                    logits = outputs["logits"] if isinstance(outputs, dict) else outputs.logits
+                    pred_ids = torch.argmax(logits, dim=-1)[0].cpu().numpy().tolist()
+                m.train()
+                
+                pad_token_id = self.processor.tokenizer.pad_token_id or 0
+                non_pad_predictions = [pid for pid in pred_ids if pid != pad_token_id]
+                
+                # Blank Collapse Check
+                if len(non_pad_predictions) == 0:
+                    self.consecutive_blank_count += 1
+                    print(f"\n⚠️  BLANK COLLAPSE WARNING (step {state.global_step}): "
+                          f"Model is predicting nothing but `<pad>` frames! "
+                          f"[{self.consecutive_blank_count}/2 blank warnings]")
+                    if self.consecutive_blank_count >= 2:
+                        self._save_health_checkpoint(m, args, "Model output collapsed to 100% silent `<pad>` tokens.")
+                        control.should_training_stop = True
+                        return
+                else:
+                    self.consecutive_blank_count = 0
+                
+                # Calculate Phoneme Error Rate (PER) via Levenshtein edit distance
+                collapsed_pred = []
+                prev = None
+                for pid in pred_ids:
+                    if pid == prev or pid == pad_token_id:
+                        prev = pid
+                        continue
+                    prev = pid
+                    collapsed_pred.append(pid)
+                
+                clean_ref = [rid for rid in ref_ids if rid >= 0 and rid != pad_token_id]
+                
+                import Levenshtein
+                dist = Levenshtein.distance(clean_ref, collapsed_pred)
+                max_len = max(len(clean_ref), len(collapsed_pred), 1)
+                per = dist / max_len
+                
+                pred_phns = self.processor.tokenizer.convert_ids_to_tokens(collapsed_pred)
+                ref_phns = self.processor.tokenizer.convert_ids_to_tokens(clean_ref)
+                
+                print(f"\n📝 VALIDATION INFERENCE (step {state.global_step}):")
+                print(f"   Target:    {' '.join(ref_phns)}")
+                print(f"   Predicted: {' '.join(pred_phns)}")
+                print(f"   Phoneme Error Rate (PER): {per:.2%}")
+                
+                # Divergence check (PER remains at 100% after warmup steps to avoid false early stops)
+                warmup_limit = max(10000, int(args.warmup_steps))
+                if per >= 0.99 and state.global_step > warmup_limit:
+                    self.consecutive_bad_per_count += 1
+                    print(f"⚠️  DIVERGENCE WARNING (step {state.global_step}): "
+                          f"Model has a Phoneme Error Rate of {per:.2%} (>99% mismatch) after warmup. "
+                          f"[{self.consecutive_bad_per_count}/3 divergence warnings]")
+                    if self.consecutive_bad_per_count >= 3:
+                        self._save_health_checkpoint(m, args, f"Model diverged (PER = {per:.2%})")
+                        control.should_training_stop = True
+                        return
+                else:
+                    self.consecutive_bad_per_count = 0
+                    
+            except Exception as e:
+                print(f"Warning inside Transcription checker: {e}")
 
 # ── Multi-Threaded Prefetch Dataset ──────────────────────────────────────────
 # Replaces the single-threaded .map() with a parallel preprocessing pipeline.
@@ -167,6 +288,8 @@ class PrefetchDataset(torch.utils.data.IterableDataset):
 
         # 3. Preprocess Audio (FFT Filter + VAD Trim)
         clean_audio = preprocessor.preprocess(audio_array)
+        if len(clean_audio) == 0:
+            raise ValueError("Audio clip is empty after FFT filtering and VAD silence trimming.")
 
         # 4. Extract Features
         input_values = processor(clean_audio, sampling_rate=16_000).input_values[0]
@@ -174,6 +297,8 @@ class PrefetchDataset(torch.utils.data.IterableDataset):
         # 5. Text to Phonemes
         text = raw.get("text", raw.get("transcription", ""))
         phonemes = g2p_manager.convert_sentence(text)
+        if len(phonemes) == 0:
+            raise ValueError("Phoneme sequence is empty after G2P conversion.")
 
         # 6. Phonemes to IDs
         labels = processor.tokenizer(phonemes, is_split_into_words=True).input_ids
@@ -183,10 +308,12 @@ class PrefetchDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         sample_q = queue.Queue(maxsize=self.prefetch_size * 2)
         result_q = queue.Queue(maxsize=self.prefetch_size)
-        skip_count = [0]
+        self.stats = {'skip_count': 0, 'yielded_count': 0}
+        self.stats_lock = threading.Lock()
 
         def worker():
             """Worker thread: owns a private AudioPreprocessor + Silero VAD."""
+            torch.set_num_threads(1)  # Prevent PyTorch core oversubscription across multi-threaded workers
             local_preprocessor = AudioPreprocessor(sr=16000)
             while True:
                 raw = sample_q.get()
@@ -198,9 +325,10 @@ class PrefetchDataset(torch.utils.data.IterableDataset):
                     )
                     result_q.put(processed)
                 except Exception as e:
-                    skip_count[0] += 1
-                    if skip_count[0] <= 10 or skip_count[0] % 100 == 0:
-                        print(f"⚠️  Skipping sample ({skip_count[0]} total): {e}")
+                    with self.stats_lock:
+                        self.stats['skip_count'] += 1
+                    if self.stats['skip_count'] <= 10 or self.stats['skip_count'] % 100 == 0:
+                        print(f"⚠️  Skipping sample ({self.stats['skip_count']} total): {e}")
             result_q.put(self._DONE)
 
         def feeder():
@@ -234,10 +362,12 @@ class PrefetchDataset(torch.utils.data.IterableDataset):
             if item is self._DONE:
                 done_count += 1
             else:
+                with self.stats_lock:
+                    self.stats['yielded_count'] += 1
                 yield item
 
-        if skip_count[0] > 0:
-            print(f"📊 PrefetchDataset: skipped {skip_count[0]} bad samples total.")
+        if self.stats['skip_count'] > 0:
+            print(f"📊 PrefetchDataset: skipped {self.stats['skip_count']} bad samples total.")
 
 
 def main():
@@ -262,6 +392,7 @@ def main():
     parser.add_argument("--save_steps", type=int, default=1000)
     parser.add_argument("--push_hub", action="store_true", help="Push checkpoints to Hugging Face Hub")
     parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
+    parser.add_argument("--max_samples", type=int, default=None, help="Limit training dataset to first N samples.")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -273,6 +404,10 @@ def main():
     print(f"Loading processor from {args.processor_dir}...")
     processor = Wav2Vec2Processor.from_pretrained(args.processor_dir)
     g2p_manager = G2PManager(dict_path=args.dict_path)
+
+    # 1b. Sequential VAD Warmup (Prevent thread-loading race conditions)
+    print("Warming up Silero VAD cache sequentially in main thread...")
+    _ = AudioPreprocessor(sr=16000)
 
     # 2. Load Model (Design A: Embedder)
     print(f"🔍 Checking for weights in: {os.path.abspath(args.output_dir)}")
@@ -333,7 +468,29 @@ def main():
     )
     # CRITICAL: Disable auto-decoding so HF doesn't try to use torchcodec
     dataset = dataset.cast_column("audio", Audio(decode=False))
+    
+    if args.max_samples is not None:
+        dataset = dataset.take(args.max_samples)
+        print(f"✓ Restricting training dataset to the first {args.max_samples} samples.")
+        
     print("✓ HuggingFace NPTEL dataset loaded (streaming mode, raw audio bytes).")
+
+    # Fetch a static validation sample for real-time health checks
+    print("Fetching static validation sample for real-time health checks...")
+    val_sample_processed = None
+    try:
+        val_sample = None
+        for s in dataset:
+            val_sample = s
+            break
+        if val_sample is not None:
+            local_preprocessor = AudioPreprocessor(sr=16000)
+            val_sample_processed = PrefetchDataset._process_sample(
+                val_sample, local_preprocessor, processor, g2p_manager
+            )
+            print(f"✅ Preloaded validation sample transcription: '{val_sample.get('text', '')}'")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not preload validation sample: {e}")
 
     # 3b. Wrap in multi-threaded prefetch pipeline
     # Each of the N worker threads gets its own Silero VAD instance.
@@ -365,7 +522,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=grad_accum_steps,
         learning_rate=args.learning_rate,
-        warmup_steps=0 if args.dry_run else 8500,  # 10% of 85k (expert rec)
+        warmup_steps=0 if args.dry_run else int(0.1 * args.steps),  # 10% of total steps
         max_grad_norm=1.0,                         # Gradient clipping (expert rec)
         bf16=use_bf16,
         fp16=False,
@@ -407,7 +564,7 @@ def main():
         data_collator=DataCollatorCTCWithPadding(processor=processor),
         args=training_args,
         train_dataset=processed_dataset,
-        callbacks=[MonitoringCallback(model=model, processor=processor)],
+        callbacks=[ModelHealthCheckCallback(model=model, processor=processor, val_sample=val_sample_processed, dataset=processed_dataset)],
     )
 
     # 6. Execute Training

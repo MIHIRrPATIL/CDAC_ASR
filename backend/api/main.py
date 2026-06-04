@@ -78,11 +78,18 @@ async def analyze_audio(
         }
         # --- DB Persistence ---
         try:
-            # Extract scores for DB
-            phoneme_score = scores.get('phoneme_score', 0.0)
-            duration_score = scores.get('duration_score', 0.0)
+            # Extract scores for DB using the correct keys from research/ScoreCalcs.py
+            phoneme_score = scores.get('phoneme', 0.0)
             
-            pitch_data = scores.get('pitch_score')
+            duration_data = scores.get('duration')
+            if isinstance(duration_data, dict):
+                duration_score = duration_data.get('accuracy', 0.0)
+            elif isinstance(duration_data, (float, int)):
+                duration_score = float(duration_data)
+            else:
+                duration_score = 0.0
+            
+            pitch_data = scores.get('pitch')
             if isinstance(pitch_data, dict):
                 pitch_score = pitch_data.get('similarity', 0.0)
             elif isinstance(pitch_data, (float, int)):
@@ -90,7 +97,13 @@ async def analyze_audio(
             else:
                 pitch_score = 0.0
                 
-            stress_score = scores.get('stress_score', 0.0)
+            stress_data = scores.get('stress')
+            if isinstance(stress_data, dict):
+                stress_score = stress_data.get('accuracy', 0.0)
+            elif isinstance(stress_data, (float, int)):
+                stress_score = float(stress_data)
+            else:
+                stress_score = 0.0
             
             # Simple average for overall score
             overall_score = (phoneme_score + duration_score + pitch_score + stress_score) / 4.0
