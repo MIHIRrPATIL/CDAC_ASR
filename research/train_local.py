@@ -1,6 +1,10 @@
 import os
 import torch
 import torch.nn as nn
+# Set sharing strategy to file_system to bypass container shared memory (/dev/shm) limitations
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 from datasets import load_from_disk
 from transformers import (
     Wav2Vec2Processor, 
