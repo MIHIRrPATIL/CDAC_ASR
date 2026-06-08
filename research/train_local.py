@@ -227,6 +227,7 @@ def main():
     parser.add_argument("--push_hub", action="store_true", help="Push checkpoints to Hugging Face Hub")
     parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
     parser.add_argument("--max_samples", type=int, default=None, help="Limit training dataset to first N samples.")
+    parser.add_argument("--dataloader_num_workers", type=int, default=4, help="Number of CPU workers for the PyTorch DataLoader.")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -327,7 +328,7 @@ def main():
         push_to_hub=args.push_hub, 
         hub_model_id=args.hub_model_id,
         report_to="none",
-        dataloader_num_workers=4,                  # Use multiple workers for dataloader to keep GPU saturated
+        dataloader_num_workers=args.dataloader_num_workers,                  # Use multiple workers for dataloader to keep GPU saturated
         remove_unused_columns=False,
     )
 
