@@ -160,16 +160,21 @@ class ModelHealthCheckCallback(TrainerCallback):
                 pad_token_id = self.processor.tokenizer.pad_token_id or 0
                 non_pad_predictions = [pid for pid in pred_ids if pid != pad_token_id]
                 
-                # Blank Collapse Check
+                # Blank Collapse Check (only active after warmup to prevent false stops during early training)
+                warmup_limit = max(5000, int(args.warmup_steps))
                 if len(non_pad_predictions) == 0:
-                    self.consecutive_blank_count += 1
-                    print(f"\n⚠️  BLANK COLLAPSE WARNING (step {state.global_step}): "
-                          f"Model is predicting nothing but `<pad>` frames! "
-                          f"[{self.consecutive_blank_count}/2 blank warnings]")
-                    if self.consecutive_blank_count >= 2:
-                        self._save_health_checkpoint(m, args, "Model output collapsed to 100% silent `<pad>` tokens.")
-                        control.should_training_stop = True
-                        return
+                    if state.global_step > warmup_limit:
+                        self.consecutive_blank_count += 1
+                        print(f"\n⚠️  BLANK COLLAPSE WARNING (step {state.global_step}): "
+                              f"Model is predicting nothing but `<pad>` frames! "
+                              f"[{self.consecutive_blank_count}/2 blank warnings]")
+                        if self.consecutive_blank_count >= 2:
+                            self._save_health_checkpoint(m, args, "Model output collapsed to 100% silent `<pad>` tokens.")
+                            control.should_training_stop = True
+                            return
+                    else:
+                        print(f"\nℹ️  Note (step {state.global_step}): Model is predicting only `<pad>` frames, "
+                              f"which is normal during early warmup phase (step < {warmup_limit}).")
                 else:
                     self.consecutive_blank_count = 0
                 
@@ -367,10 +372,18 @@ def main():
     )
 
     # 6. Execute Training
+    # Check if there is a checkpoint in the output directory to resume from
+    resume_checkpoint = None
+    if os.path.exists(args.output_dir):
+        checkpoints = [d for d in os.listdir(args.output_dir) if d.startswith("checkpoint-")]
+        if checkpoints:
+            resume_checkpoint = True
+            print(f"🔄 Found checkpoints in {args.output_dir}. Resuming training from the latest checkpoint...")
+
     print("Starting training loop (Phase 4: Anti-Collapse)...")
     print(f"  LR: {args.learning_rate}, Warmup: {training_args.warmup_steps}, Grad Clip: 1.0")
     print(f"  Effective Batch: {args.batch_size * grad_accum_steps}")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_checkpoint)
 
     # Final Save
     trainer.save_model(args.output_dir)
