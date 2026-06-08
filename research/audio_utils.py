@@ -7,12 +7,26 @@ class AudioPreprocessor:
     def __init__(self, sr=16000):
         self.sr = sr
         # Load Silero VAD
-        self.vad_model, self.vad_utils = torch.hub.load(
-            repo_or_dir='snakers4/silero-vad',
-            model='silero_vad',
-            force_reload=False,
-            trust_repo=True
-        )
+        import os
+        hub_dir = torch.hub.get_dir()
+        local_repo_path = os.path.join(hub_dir, "snakers4_silero-vad_master")
+        
+        if os.path.exists(local_repo_path):
+            self.vad_model, self.vad_utils = torch.hub.load(
+                repo_or_dir=local_repo_path,
+                source='local',
+                model='silero_vad',
+                trust_repo=True,
+                onnx=False
+            )
+        else:
+            self.vad_model, self.vad_utils = torch.hub.load(
+                repo_or_dir='snakers4/silero-vad',
+                source='github',
+                model='silero_vad',
+                force_reload=False,
+                trust_repo=True
+            )
         (self.get_speech_timestamps, _, self.read_audio, self.vad_iterator, self.collect_chunks) = self.vad_utils
 
     def apply_fft_filter(self, audio, noise_reduction_factor=0.02):
