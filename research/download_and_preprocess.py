@@ -109,14 +109,31 @@ def main():
     print("Warming up Silero VAD cache sequentially in main process...")
     _ = AudioPreprocessor(sr=16000)
 
-    print(f"Loading dataset '{args.dataset_name}' (streaming=False to download to disk)...")
-    dataset = load_dataset(args.dataset_name, split="train", streaming=False)
-    # Cast column to disable auto decoding so we do manual decoding in processes
-    dataset = dataset.cast_column("audio", Audio(decode=False))
-
     if args.max_samples is not None:
-        dataset = dataset.select(range(min(args.max_samples, len(dataset))))
-        print(f"Restricted dataset to the first {len(dataset)} samples for testing.")
+        print(f"Loading first {args.max_samples} samples via streaming to avoid downloading the entire 120 GB...")
+        dataset = load_dataset(args.dataset_name, split="train", streaming=True)
+        # Cast column to disable auto decoding so we do manual decoding in processes
+        dataset = dataset.cast_column("audio", Audio(decode=False))
+        
+        # Take max_samples
+        dataset_stream = dataset.take(args.max_samples)
+        
+        # Convert to standard in-memory Dataset
+        print("Fetching samples from stream...")
+        samples = []
+        for i, sample in enumerate(dataset_stream):
+            samples.append(sample)
+            if (i + 1) % 250 == 0:
+                print(f"  Loaded {i+1} samples...")
+        
+        from datasets import Dataset
+        dataset = Dataset.from_list(samples)
+        print(f"✓ Created in-memory Dataset with {len(dataset)} samples.")
+    else:
+        print(f"Loading full dataset '{args.dataset_name}' (streaming=False to download to disk)...")
+        dataset = load_dataset(args.dataset_name, split="train", streaming=False)
+        # Cast column to disable auto decoding so we do manual decoding in processes
+        dataset = dataset.cast_column("audio", Audio(decode=False))
 
     print(f"Starting preprocessing map with {args.num_proc} processes, batch_size={args.batch_size}...")
     
