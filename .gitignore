@@ -47,3 +47,7 @@ phoneme2id.json
 log/
 *.log
 tensorboard/
+
+# Datasets
+*.zip
+indian-accent-dataset/
