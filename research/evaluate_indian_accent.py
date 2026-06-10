@@ -8,6 +8,7 @@ import librosa
 import torch
 from tqdm import tqdm
 import Levenshtein
+import nltk
 
 # Import model, processor, and utilities from local project
 from transformers import Wav2Vec2Processor
@@ -99,6 +100,12 @@ def extract_transcript(speaker_dir):
 
 def main():
     args = parse_args()
+    
+    # Download required NLTK resources
+    print("Checking NLTK resources...")
+    for res in ['averaged_perceptron_tagger', 'averaged_perceptron_tagger_eng', 'cmudict']:
+        nltk.download(res, quiet=True)
+
     
     # Check if dataset directory exists
     if not os.path.exists(args.dataset_dir):

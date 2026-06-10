@@ -4,6 +4,7 @@ import argparse
 from tqdm import tqdm
 from g2p.g2p_utils import G2PManager
 from evaluate_indian_accent import extract_transcript
+import nltk
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Verify G2P dictionary coverage and fallbacks")
@@ -13,6 +14,12 @@ def parse_args():
 
 def main():
     args = parse_args()
+    
+    # Download required NLTK resources
+    print("Checking NLTK resources...")
+    for res in ['averaged_perceptron_tagger', 'averaged_perceptron_tagger_eng', 'cmudict']:
+        nltk.download(res, quiet=True)
+
     
     if not os.path.exists(args.dataset_dir):
         print(f"❌ Error: Dataset directory '{args.dataset_dir}' not found.")
