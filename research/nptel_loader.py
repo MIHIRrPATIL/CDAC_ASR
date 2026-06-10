@@ -9,7 +9,6 @@ from pathlib import Path
 from tqdm import tqdm
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-
 class NPTELChunkedLoader:
     """
     A loader for the NPTEL2020 dataset. The dataset is a SINGLE large tar.gz

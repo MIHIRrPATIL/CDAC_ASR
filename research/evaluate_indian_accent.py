@@ -174,12 +174,17 @@ def main():
         
         per_scores = []
         skipped = 0
+        error_count = 0
+        max_error_prints = 5
 
         for speaker_dir in tqdm(speaker_dirs):
             audio_path = find_audio(speaker_dir)
             transcript = extract_transcript(speaker_dir)
 
             if not audio_path or not transcript:
+                if error_count < max_error_prints:
+                    print(f"⚠️  Skipped {speaker_dir} because audio_path={audio_path} or transcript={'[FOUND]' if transcript else '[NOT FOUND]'}")
+                    error_count += 1
                 skipped += 1
                 continue
 
@@ -192,6 +197,9 @@ def main():
                 # 2. Preprocess Audio (FFT + VAD)
                 clean_audio = preprocessor.preprocess(audio_array)
                 if len(clean_audio) == 0:
+                    if error_count < max_error_prints:
+                        print(f"⚠️  Skipped {speaker_dir} because VAD trimmed it to 0 length")
+                        error_count += 1
                     skipped += 1
                     continue
 
@@ -202,12 +210,18 @@ def main():
                 # 4. G2P conversion of target transcript
                 target_phonemes = g2p.convert_sentence(transcript)
                 if len(target_phonemes) == 0:
+                    if error_count < max_error_prints:
+                        print(f"⚠️  Skipped {speaker_dir} because G2P converted sentence to empty phonemes list")
+                        error_count += 1
                     skipped += 1
                     continue
                 target_ids = processor.tokenizer(target_phonemes, is_split_into_words=True).input_ids
                 clean_ref = [rid for rid in target_ids if rid >= 0 and rid != pad_token_id]
 
                 if not clean_ref:
+                    if error_count < max_error_prints:
+                        print(f"⚠️  Skipped {speaker_dir} because clean tokenized target reference is empty")
+                        error_count += 1
                     skipped += 1
                     continue
 
@@ -233,7 +247,10 @@ def main():
                 per = dist / max_len
                 per_scores.append(per)
 
-            except Exception:
+            except Exception as e:
+                if error_count < max_error_prints:
+                    print(f"⚠️  Error processing {speaker_dir}: {e}")
+                    error_count += 1
                 skipped += 1
                 continue
 
