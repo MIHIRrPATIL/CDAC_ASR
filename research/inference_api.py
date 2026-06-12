@@ -88,6 +88,17 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
     pred_phonemes_raw = [_id2phoneme.get(int(i), '<unk>') for i in pred_ids[0]]
     valid_pred_phonemes = [p for p in pred_phonemes_raw if p not in ['<pad>', '<unk>']]
     
+    # Map target phonemes to IDs
+    target_ids = _processor.tokenizer(ref_phonemes_raw, is_split_into_words=True).input_ids
+    targets = torch.tensor([target_ids], dtype=torch.long, device=device)
+    blank_id = _processor.tokenizer.pad_token_id or 0
+    
+    # Run CTC forced alignment
+    intervals = _scorer.ctc_forced_align(logits, targets, blank_id=blank_id)
+    
+    # Run GoP Scorer
+    gop_details = _scorer.compute_gop(logits, targets, intervals, ref_phonemes_raw)
+    
     duration = len(speech) / sr
     pred_times = [(i*0.02, (i+1)*0.02) for i in range(len(valid_pred_phonemes))]
     ref_times = [(i*duration/len(ref_phonemes_raw), (i+1)*duration/len(ref_phonemes_raw)) 
@@ -103,4 +114,5 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
         sr=sr
     )
     
+    results["gop_details"] = gop_details
     return results

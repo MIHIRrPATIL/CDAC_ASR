@@ -203,6 +203,20 @@ class ModelHealthCheckCallback(TrainerCallback):
                 print(f"   Predicted: {' '.join(pred_phns)}")
                 print(f"   Phoneme Error Rate (PER): {per:.2%}")
                 
+                # Zero-<unk> Assertion after warmup
+                unk_token_id = self.processor.tokenizer.unk_token_id or 1
+                unk_count = sum(1 for pid in pred_ids if pid == unk_token_id)
+                warmup_limit_unk = max(5000, int(args.warmup_steps))
+                if state.global_step > warmup_limit_unk:
+                    assert unk_count == 0, f"Assertion failed: predicted {unk_count} <unk> tokens after warmup limit (step {state.global_step})"
+                
+                # PER Early Stopping (<15% target)
+                if per < 0.15:
+                    print(f"\n🎉 Validation PER ({per:.2%}) dropped below target threshold of 15%!")
+                    self._save_health_checkpoint(m, args, f"Target PER achieved ({per:.2%})")
+                    control.should_training_stop = True
+                    return
+                
                 # Divergence check (PER remains at 100% after warmup steps to avoid false early stops)
                 warmup_limit = max(10000, int(args.warmup_steps))
                 if per >= 0.99 and state.global_step > warmup_limit:

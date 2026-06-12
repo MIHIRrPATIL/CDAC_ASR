@@ -3,6 +3,8 @@ from typing import List, Tuple, Dict
 import numpy as np
 from fastdtw import fastdtw
 import librosa
+import torch
+import torchaudio.functional as F
 
 class PronunciationScorer:
     def __init__(self):
@@ -294,5 +296,133 @@ class PronunciationScorer:
         # Add stress analysis if phonemes contain stress markers
         if any(any(c.isdigit() for c in phn) for phn in ref_phonemes):
             results['stress'] = self.stress_score(pred_phonemes, ref_phonemes, aligned)
+            
+        return results
+
+    def ctc_forced_align(self, log_probs: torch.Tensor, targets: torch.Tensor, blank_id: int = 0) -> List[Tuple[int, int]]:
+        """
+        Computes CTC forced alignment for batch_size=1.
+        
+        Args:
+            log_probs: Tensor of shape (1, Time, Vocab)
+            targets: Tensor of shape (1, Target_Len)
+            blank_id: Index of blank token
+            
+        Returns:
+            List of (start_frame, end_frame) matching each token in targets.
+        """
+        device = log_probs.device
+        targets = targets.to(device)
+        
+        B, T, C = log_probs.shape
+        L = targets.shape[1]
+        
+        input_lengths = torch.tensor([T], dtype=torch.long, device=device)
+        target_lengths = torch.tensor([L], dtype=torch.long, device=device)
+        
+        # Log softmax along vocab dimension
+        log_probs_norm = torch.log_softmax(log_probs, dim=-1)
+        
+        try:
+            # torchaudio forced_align
+            alignments, scores = F.forced_align(
+                log_probs_norm, 
+                targets, 
+                input_lengths=input_lengths, 
+                target_lengths=target_lengths, 
+                blank=blank_id
+            )
+            
+            path = alignments[0].cpu().numpy().tolist()
+            targets_list = targets[0].cpu().numpy().tolist()
+            
+            # Extract intervals using state machine
+            intervals = []
+            target_idx = 0
+            start_frame = None
+            end_frame = None
+            saw_blank = False
+            
+            for t in range(T):
+                token = path[t]
+                if token == blank_id:
+                    saw_blank = True
+                    continue
+                    
+                if (target_idx + 1 < L and token == targets_list[target_idx + 1] and 
+                    start_frame is not None and 
+                    (targets_list[target_idx + 1] != targets_list[target_idx] or saw_blank)):
+                    
+                    intervals.append((start_frame, end_frame))
+                    target_idx += 1
+                    start_frame = t
+                    end_frame = t
+                    saw_blank = False
+                elif target_idx < L and token == targets_list[target_idx]:
+                    if start_frame is None:
+                        start_frame = t
+                    end_frame = t
+                    saw_blank = False
+                    
+            if start_frame is not None:
+                intervals.append((start_frame, end_frame))
+        except Exception as e:
+            print(f"Warning: torchaudio forced_align failed: {e}. Falling back to linear alignment.")
+            intervals = []
+            step = T / max(L, 1)
+            for idx in range(L):
+                s = int(idx * step)
+                e = int((idx + 1) * step) - 1
+                intervals.append((s, max(s, e)))
+            return intervals
+            
+        # Fallback padding
+        while len(intervals) < L:
+            if intervals:
+                intervals.append(intervals[-1])
+            else:
+                intervals.append((0, T - 1))
+                
+        return intervals[:L]
+
+    def compute_gop(self, 
+                    log_probs: torch.Tensor, 
+                    targets: torch.Tensor, 
+                    intervals: List[Tuple[int, int]], 
+                    vocab_tokens: List[str]) -> List[Dict]:
+        """
+        Computes Goodness of Pronunciation (GoP) log-likelihood ratios.
+        """
+        probs = torch.softmax(log_probs[0], dim=-1)
+        
+        L = targets.shape[1]
+        targets_list = targets[0].cpu().numpy().tolist()
+        
+        results = []
+        frame_stride_ms = 20.0
+        
+        for idx in range(L):
+            token_id = targets_list[idx]
+            phoneme = vocab_tokens[idx] if idx < len(vocab_tokens) else str(token_id)
+            
+            s_frame, e_frame = intervals[idx]
+            token_probs = probs[s_frame:e_frame+1, token_id]
+            
+            if len(token_probs) > 0:
+                log_probs_slice = torch.log(token_probs + 1e-8)
+                gop_score = log_probs_slice.mean().item()
+            else:
+                gop_score = -10.0
+                
+            gop_prob = float(np.exp(gop_score))
+            is_correct = bool(gop_prob >= 0.40)
+            
+            results.append({
+                "phoneme": phoneme,
+                "start_ms": float(s_frame * frame_stride_ms),
+                "end_ms": float((e_frame + 1) * frame_stride_ms),
+                "gop_prob": gop_prob,
+                "is_correct": is_correct
+            })
             
         return results

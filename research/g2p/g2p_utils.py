@@ -40,6 +40,14 @@ class G2PManager:
         self.dict_path = dict_path
         self.phoneme_dict = self._load_dict(dict_path)
         
+        # Load and merge patch vocabulary if it exists
+        patch_path = os.path.join(os.path.dirname(dict_path), "patch_vocab.dict")
+        if os.path.exists(patch_path):
+            print(f"Merging patch dictionary from {patch_path}...")
+            patch_dict = self._load_dict(patch_path)
+            self.phoneme_dict.update(patch_dict)
+            print(f"Total vocabulary size after patch merge: {len(self.phoneme_dict)}")
+        
         # Initialize Neural G2P
         if G2p is not None:
             print("Initializing Neural G2P fallback (g2p-en)...")
