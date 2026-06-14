@@ -21,11 +21,14 @@ var/
 .planning/
 sample_dataset/
 # Model Checkpoints
-nptel_embedder_checkpoints/
+models/nptel_embedder_checkpoints/
+models/trained_models/
 local_model_optimized/
 my_local_model/
 phoneme_model_out/
-trained_models/
+src/g2p/dict_generator/phoneme_model_out/
+src/g2p/dict_generator/phonemes/
+src/lexicon/output/
 
 # Data
 nptel_data/
@@ -47,6 +50,9 @@ phoneme2id.json
 log/
 *.log
 tensorboard/
+__pycache__/
+*.py[cod]
+*$py.class
 
 # Datasets
 *.zip

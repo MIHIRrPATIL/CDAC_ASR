@@ -1,0 +1,11 @@
+MFA/
+nptel-pure/
+checkpoint-2200/
+checkpoint-2375/
+model.safetensors
+training_args.bin
+oovs.dict
+oovs_found.txt
+oovs_is.dict
+oovs_temp_is.txt
+output.dict

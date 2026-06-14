@@ -1,0 +1,14 @@
+montreal-forced-aligner
+torch
+torchaudio
+transformers
+datasets
+soundfile
+sounddevice
+pronouncing
+datasets
+tqdm
+evaluate
+kalpy
+torchcodec
+accelerate>=0.26.0
