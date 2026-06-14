@@ -22,6 +22,7 @@ var/
 sample_dataset/
 # Model Checkpoints
 models/nptel_embedder_checkpoints/
+nptel_embedder_checkpoints/
 models/trained_models/
 local_model_optimized/
 my_local_model/

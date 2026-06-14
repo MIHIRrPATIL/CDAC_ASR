@@ -9,7 +9,7 @@ import nltk
 def parse_args():
     parser = argparse.ArgumentParser(description="Verify G2P dictionary coverage and fallbacks")
     parser.add_argument("--dataset_dir", default="indian-accent-dataset/audio", help="Path to Kaggle dataset splits")
-    parser.add_argument("--dict_path", default="g2p/output_full.dict", help="Path to dictionary")
+    parser.add_argument("--dict_path", default="src/g2p/output_v2_detailed.dict", help="Path to dictionary")
     return parser.parse_args()
 
 def main():

@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument("--dataset_dir", default="sample_dataset/nptel-pure", help="Path to the local NPTEL-pure dataset")
     parser.add_argument("--model_dir", default="MihirRPatil/nptel-asr-phoneme-v2", help="Hugging Face repo ID or path to local model checkpoints")
     parser.add_argument("--processor_dir", default="models/processor_dir", help="Path to local Wav2Vec2 processor directory")
-    parser.add_argument("--dict_path", default="src/g2p/output_full.dict", help="Path to G2P mapping dictionary")
+    parser.add_argument("--dict_path", default="src/g2p/output_v2_detailed.dict", help="Path to G2P mapping dictionary")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples to process (for quick testing)")
     parser.add_argument("--transcript_mode", choices=["corrected", "original", "metadata"], default="corrected",
                         help="Primary transcript source: human-corrected (corrected), original-ASR (original), or JSON-metadata (metadata)")

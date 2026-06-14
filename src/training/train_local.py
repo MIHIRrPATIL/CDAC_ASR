@@ -57,10 +57,10 @@ class DataCollatorCTCWithPadding:
 
 # Model Health Check & Real-time Verification Callback
 class ModelHealthCheckCallback(TrainerCallback):
-    def __init__(self, model=None, processor=None, val_sample=None, dataset=None):
+    def __init__(self, model=None, processor=None, val_samples=None, dataset=None):
         self.model = model
         self.processor = processor
-        self.val_sample = val_sample
+        self.val_samples = val_samples if val_samples is not None else []
         self.dataset = dataset
         self.consecutive_collapse_count = 0
         self.consecutive_blank_count = 0
@@ -144,88 +144,109 @@ class ModelHealthCheckCallback(TrainerCallback):
             print(f"Warning inside Embedding Collapse checker: {e}")
 
         # 2. Real-time Output Validation (Phoneme Error Rate & Blank Collapse Checks)
-        if self.val_sample is not None:
+        if self.val_samples:
             try:
                 device = m.device if hasattr(m, "device") else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                input_values = torch.tensor(self.val_sample["input_values"], dtype=torch.float32).unsqueeze(0).to(device)
-                ref_ids = self.val_sample["labels"]
+                pad_token_id = self.processor.tokenizer.pad_token_id or 0
+                unk_token_id = self.processor.tokenizer.unk_token_id or 1
                 
                 m.eval()
-                with torch.no_grad():
-                    outputs = m(input_values)
-                    logits = outputs["logits"] if isinstance(outputs, dict) else outputs.logits
-                    pred_ids = torch.argmax(logits, dim=-1)[0].cpu().numpy().tolist()
+                per_scores = []
+                total_blank = 0
+                total_unk = 0
+                
+                # We'll print details for the first 2 samples to avoid spamming the log
+                print(f"\n📝 VALIDATION INFERENCE (step {state.global_step}) over {len(self.val_samples)} samples:")
+                
+                for idx, val_sample in enumerate(self.val_samples):
+                    input_values = torch.tensor(val_sample["input_values"], dtype=torch.float32).unsqueeze(0).to(device)
+                    ref_ids = val_sample["labels"]
+                    
+                    with torch.no_grad():
+                        outputs = m(input_values)
+                        logits = outputs["logits"] if isinstance(outputs, dict) else outputs.logits
+                        pred_ids = torch.argmax(logits, dim=-1)[0].cpu().numpy().tolist()
+                    
+                    non_pad_predictions = [pid for pid in pred_ids if pid != pad_token_id]
+                    if len(non_pad_predictions) == 0:
+                        total_blank += 1
+                        
+                    # Calculate Phoneme Error Rate (PER) via Levenshtein edit distance
+                    collapsed_pred = []
+                    prev = None
+                    for pid in pred_ids:
+                        if pid == prev or pid == pad_token_id:
+                            prev = pid
+                            continue
+                        prev = pid
+                        collapsed_pred.append(pid)
+                    
+                    clean_ref = [rid for rid in ref_ids if rid >= 0 and rid != pad_token_id]
+                    
+                    import Levenshtein
+                    dist = Levenshtein.distance(clean_ref, collapsed_pred)
+                    max_len = max(len(clean_ref), len(collapsed_pred), 1)
+                    per = dist / max_len
+                    per_scores.append(per)
+                    
+                    unk_count = sum(1 for pid in pred_ids if pid == unk_token_id)
+                    total_unk += unk_count
+                    
+                    if idx < 2:
+                        pred_phns = self.processor.tokenizer.convert_ids_to_tokens(collapsed_pred)
+                        ref_phns = self.processor.tokenizer.convert_ids_to_tokens(clean_ref)
+                        print(f"  [Sample {idx+1}]")
+                        print(f"   Target:    {' '.join(ref_phns)}")
+                        print(f"   Predicted: {' '.join(pred_phns)}")
+                        print(f"   PER: {per:.2%}")
+                
                 m.train()
                 
-                pad_token_id = self.processor.tokenizer.pad_token_id or 0
-                non_pad_predictions = [pid for pid in pred_ids if pid != pad_token_id]
+                mean_per = sum(per_scores) / len(per_scores)
+                blank_ratio = total_blank / len(self.val_samples)
+                print(f"  [Overall Validation Results]")
+                print(f"   Mean PER: {mean_per:.2%}")
+                print(f"   Blank samples: {total_blank}/{len(self.val_samples)} ({blank_ratio:.2%})")
                 
                 # Blank Collapse Check (only active after warmup to prevent false stops during early training)
                 warmup_limit = max(5000, int(args.warmup_steps))
-                if len(non_pad_predictions) == 0:
+                if blank_ratio >= 0.8:
                     if state.global_step > warmup_limit:
                         self.consecutive_blank_count += 1
                         print(f"\n⚠️  BLANK COLLAPSE WARNING (step {state.global_step}): "
-                              f"Model is predicting nothing but `<pad>` frames! "
+                              f"Model is predicting nothing but `<pad>` frames for {blank_ratio:.2%} of samples! "
                               f"[{self.consecutive_blank_count}/2 blank warnings]")
                         if self.consecutive_blank_count >= 2:
                             self._save_health_checkpoint(m, args, "Model output collapsed to 100% silent `<pad>` tokens.")
                             control.should_training_stop = True
                             return
                     else:
-                        print(f"\nℹ️  Note (step {state.global_step}): Model is predicting only `<pad>` frames, "
+                        print(f"\nℹ️  Note (step {state.global_step}): Model is predicting only `<pad>` frames for {blank_ratio:.2%} of samples, "
                               f"which is normal during early warmup phase (step < {warmup_limit}).")
                 else:
                     self.consecutive_blank_count = 0
                 
-                # Calculate Phoneme Error Rate (PER) via Levenshtein edit distance
-                collapsed_pred = []
-                prev = None
-                for pid in pred_ids:
-                    if pid == prev or pid == pad_token_id:
-                        prev = pid
-                        continue
-                    prev = pid
-                    collapsed_pred.append(pid)
-                
-                clean_ref = [rid for rid in ref_ids if rid >= 0 and rid != pad_token_id]
-                
-                import Levenshtein
-                dist = Levenshtein.distance(clean_ref, collapsed_pred)
-                max_len = max(len(clean_ref), len(collapsed_pred), 1)
-                per = dist / max_len
-                
-                pred_phns = self.processor.tokenizer.convert_ids_to_tokens(collapsed_pred)
-                ref_phns = self.processor.tokenizer.convert_ids_to_tokens(clean_ref)
-                
-                print(f"\n📝 VALIDATION INFERENCE (step {state.global_step}):")
-                print(f"   Target:    {' '.join(ref_phns)}")
-                print(f"   Predicted: {' '.join(pred_phns)}")
-                print(f"   Phoneme Error Rate (PER): {per:.2%}")
-                
                 # Zero-<unk> Assertion after warmup
-                unk_token_id = self.processor.tokenizer.unk_token_id or 1
-                unk_count = sum(1 for pid in pred_ids if pid == unk_token_id)
                 warmup_limit_unk = max(5000, int(args.warmup_steps))
                 if state.global_step > warmup_limit_unk:
-                    assert unk_count == 0, f"Assertion failed: predicted {unk_count} <unk> tokens after warmup limit (step {state.global_step})"
+                    assert total_unk == 0, f"Assertion failed: predicted {total_unk} <unk> tokens after warmup limit (step {state.global_step})"
                 
                 # PER Early Stopping (<15% target)
-                if per < 0.15:
-                    print(f"\n🎉 Validation PER ({per:.2%}) dropped below target threshold of 15%!")
-                    self._save_health_checkpoint(m, args, f"Target PER achieved ({per:.2%})")
+                if mean_per < 0.15:
+                    print(f"\n🎉 Validation Mean PER ({mean_per:.2%}) dropped below target threshold of 15%!")
+                    self._save_health_checkpoint(m, args, f"Target PER achieved ({mean_per:.2%})")
                     control.should_training_stop = True
                     return
                 
-                # Divergence check (PER remains at 100% after warmup steps to avoid false early stops)
-                warmup_limit = max(10000, int(args.warmup_steps))
-                if per >= 0.99 and state.global_step > warmup_limit:
+                # Divergence check (Mean PER remains at 100% after warmup steps)
+                warmup_limit_div = max(10000, int(args.warmup_steps))
+                if mean_per >= 0.99 and state.global_step > warmup_limit_div:
                     self.consecutive_bad_per_count += 1
                     print(f"⚠️  DIVERGENCE WARNING (step {state.global_step}): "
-                          f"Model has a Phoneme Error Rate of {per:.2%} (>99% mismatch) after warmup. "
+                          f"Model has a Mean Phoneme Error Rate of {mean_per:.2%} (>99% mismatch) after warmup. "
                           f"[{self.consecutive_bad_per_count}/3 divergence warnings]")
                     if self.consecutive_bad_per_count >= 3:
-                        self._save_health_checkpoint(m, args, f"Model diverged (PER = {per:.2%})")
+                        self._save_health_checkpoint(m, args, f"Model diverged (Mean PER = {mean_per:.2%})")
                         control.should_training_stop = True
                         return
                 else:
@@ -240,7 +261,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--offline_dataset_dir", required=True, help="Directory path of the preprocessed dataset on disk")
     parser.add_argument("--hub_model_id", required=True, help="Hugging Face Hub repository ID")
-    parser.add_argument("--processor_dir", default="processor_dir", help="Path to local processor config")
+    parser.add_argument("--processor_dir", default="models/processor_dir", help="Path to local processor config")
     parser.add_argument("--output_dir", default="nptel_embedder_checkpoints")
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 2 (normal) or 1 (dry_run).")
@@ -320,9 +341,15 @@ def main():
         
     print(f"✓ Dataset loaded. Total samples: {len(processed_dataset)}")
 
-    # Fetch a static validation sample from the preprocessed dataset for real-time health checks
-    val_sample_processed = processed_dataset[0]
-    print(f"✅ Loaded validation sample index 0.")
+    # Fetch static validation samples from the preprocessed dataset for real-time health checks
+    val_samples_processed = []
+    try:
+        num_val = min(10, len(processed_dataset))
+        for idx in range(num_val):
+            val_samples_processed.append(processed_dataset[idx])
+        print(f"✅ Loaded {len(val_samples_processed)} validation samples from offline dataset.")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not load validation samples: {e}")
 
     # 4. Training Arguments
     has_cuda = torch.cuda.is_available()
@@ -382,7 +409,7 @@ def main():
         data_collator=DataCollatorCTCWithPadding(processor=processor),
         args=training_args,
         train_dataset=processed_dataset,
-        callbacks=[ModelHealthCheckCallback(model=model, processor=processor, val_sample=val_sample_processed, dataset=processed_dataset)],
+        callbacks=[ModelHealthCheckCallback(model=model, processor=processor, val_samples=val_samples_processed, dataset=processed_dataset)],
     )
 
     # 6. Execute Training

@@ -35,7 +35,7 @@ class G2PManager:
     def __init__(self, dict_path=None):
         if dict_path is None:
             # Default to the local dictionary in the same folder
-            dict_path = os.path.join(os.path.dirname(__file__), "output_full.dict")
+            dict_path = os.path.join(os.path.dirname(__file__), "output_v2_detailed.dict")
         
         self.dict_path = dict_path
         self.phoneme_dict = self._load_dict(dict_path)

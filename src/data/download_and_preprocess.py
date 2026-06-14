@@ -279,8 +279,8 @@ def build_and_apply_vocab_patch(dataset, processor, g2p_manager, patch_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Download, balance, and preprocess CDAC datasets offline")
-    parser.add_argument("--processor_dir", default="processor_dir", help="Path to local processor config")
-    parser.add_argument("--dict_path", default="g2p/output_full.dict", help="Path to MFA dictionary for G2P")
+    parser.add_argument("--processor_dir", default="models/processor_dir", help="Path to local processor config")
+    parser.add_argument("--dict_path", default="src/g2p/output_v2_detailed.dict", help="Path to MFA dictionary for G2P")
     parser.add_argument("--save_dir", default="local_nptel_processed", help="Path to save the preprocessed dataset")
     parser.add_argument("--num_proc", type=int, default=40, help="Number of processes to use for preprocessing (default: 40)")
     parser.add_argument("--batch_size", type=int, default=100, help="Batch size for map function")
