@@ -422,10 +422,10 @@ def main():
     parser.add_argument("--processor_dir", default="models/processor_dir", help="Path to local processor config")
     parser.add_argument("--dict_path", default="src/g2p/output_v2_detailed.dict", help="Path to MFA dictionary for G2P")
     parser.add_argument("--output_dir", default="nptel_embedder_checkpoints")
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 2 (normal) or 1 (dry_run).")
-    parser.add_argument("--num_workers", type=int, default=12, help="CPU worker threads for preprocessing (default: 12 for multi-core).")
-    parser.add_argument("--prefetch", type=int, default=256, help="Prefetch buffer size (preprocessed samples held in RAM).")
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 8 (normal) or 1 (dry_run).")
+    parser.add_argument("--num_workers", type=int, default=24, help="CPU worker threads for preprocessing (default: 24 for multi-core).")
+    parser.add_argument("--prefetch", type=int, default=30000, help="Prefetch buffer size (preprocessed samples held in RAM).")
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--save_steps", type=int, default=1000)
@@ -557,7 +557,7 @@ def main():
     if args.grad_accum is not None:
         grad_accum_steps = args.grad_accum
     else:
-        grad_accum_steps = 1 if args.dry_run else 2
+        grad_accum_steps = 1 if args.dry_run else 8
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,

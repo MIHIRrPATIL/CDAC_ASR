@@ -264,14 +264,14 @@ def main():
     parser.add_argument("--processor_dir", default="models/processor_dir", help="Path to local processor config")
     parser.add_argument("--output_dir", default="nptel_embedder_checkpoints")
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 2 (normal) or 1 (dry_run).")
+    parser.add_argument("--grad_accum", type=int, default=None, help="Gradient accumulation steps. Defaults to 4 (normal) or 1 (dry_run).")
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--save_steps", type=int, default=1000)
     parser.add_argument("--push_hub", action="store_true", help="Push checkpoints to Hugging Face Hub")
     parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
     parser.add_argument("--max_samples", type=int, default=None, help="Limit training dataset to first N samples.")
-    parser.add_argument("--dataloader_num_workers", type=int, default=4, help="Number of CPU workers for the PyTorch DataLoader.")
+    parser.add_argument("--dataloader_num_workers", type=int, default=2, help="Number of CPU workers for the PyTorch DataLoader.")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -376,7 +376,7 @@ def main():
     if args.grad_accum is not None:
         grad_accum_steps = args.grad_accum
     else:
-        grad_accum_steps = 1 if args.dry_run else 2
+        grad_accum_steps = 1 if args.dry_run else 4
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,
