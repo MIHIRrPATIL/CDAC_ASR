@@ -333,21 +333,38 @@ def main():
 
     # 3. Load processed dataset from local disk
     print(f"Loading preprocessed dataset from '{args.offline_dataset_dir}'...")
-    processed_dataset = load_from_disk(args.offline_dataset_dir)
+    dataset_dict = load_from_disk(args.offline_dataset_dir)
+    
+    # Check if this is a DatasetDict containing train/test splits
+    if isinstance(dataset_dict, dict) or hasattr(dataset_dict, "keys"):
+        print("✓ Detected DatasetDict containing splits: ", list(dataset_dict.keys()))
+        train_dataset = dataset_dict["train"]
+        val_dataset = dataset_dict.get("test", dataset_dict.get("validation", None))
+    else:
+        print("✓ Detected legacy single Dataset.")
+        train_dataset = dataset_dict
+        val_dataset = None
     
     if args.max_samples is not None:
-        processed_dataset = processed_dataset.select(range(min(args.max_samples, len(processed_dataset))))
-        print(f"✓ Restricting training dataset to the first {len(processed_dataset)} samples.")
+        train_dataset = train_dataset.select(range(min(args.max_samples, len(train_dataset))))
+        print(f"✓ Restricting training dataset to the first {len(train_dataset)} samples.")
         
-    print(f"✓ Dataset loaded. Total samples: {len(processed_dataset)}")
+    print(f"✓ Training Dataset loaded. Total samples: {len(train_dataset)}")
 
     # Fetch static validation samples from the preprocessed dataset for real-time health checks
     val_samples_processed = []
     try:
-        num_val = min(10, len(processed_dataset))
-        for idx in range(num_val):
-            val_samples_processed.append(processed_dataset[idx])
-        print(f"✅ Loaded {len(val_samples_processed)} validation samples from offline dataset.")
+        if val_dataset is not None:
+            print(f"✓ Validation/Test Dataset loaded. Total samples: {len(val_dataset)}")
+            num_val = min(10, len(val_dataset))
+            for idx in range(num_val):
+                val_samples_processed.append(val_dataset[idx])
+            print(f"✅ Loaded {len(val_samples_processed)} validation samples from offline test split.")
+        else:
+            num_val = min(10, len(train_dataset))
+            for idx in range(num_val):
+                val_samples_processed.append(train_dataset[idx])
+            print(f"✅ Loaded {len(val_samples_processed)} validation samples from training dataset (fallback).")
     except Exception as e:
         print(f"⚠️ Warning: Could not load validation samples: {e}")
 
@@ -408,8 +425,8 @@ def main():
         model=model,
         data_collator=DataCollatorCTCWithPadding(processor=processor),
         args=training_args,
-        train_dataset=processed_dataset,
-        callbacks=[ModelHealthCheckCallback(model=model, processor=processor, val_samples=val_samples_processed, dataset=processed_dataset)],
+        train_dataset=train_dataset,
+        callbacks=[ModelHealthCheckCallback(model=model, processor=processor, val_samples=val_samples_processed, dataset=train_dataset)],
     )
 
     # 6. Execute Training

@@ -323,9 +323,11 @@ def main():
         desc="Preprocessing audio and text offline"
     )
 
-    print(f"Saving preprocessed dataset to disk at '{args.save_dir}'...")
-    processed_dataset.save_to_disk(args.save_dir)
-    print("✅ Preprocessing and save completed successfully!")
+    print(f"Splitting dataset into train and test (10% test size)...")
+    dataset_dict = processed_dataset.train_test_split(test_size=0.1, seed=42)
+    print(f"Saving preprocessed DatasetDict to disk at '{args.save_dir}'...")
+    dataset_dict.save_to_disk(args.save_dir)
+    print("✅ Preprocessing, train-test split, and save completed successfully!")
 
 if __name__ == "__main__":
     main()

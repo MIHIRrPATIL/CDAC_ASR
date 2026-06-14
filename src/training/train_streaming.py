@@ -514,24 +514,24 @@ def main():
         
     print("✓ HuggingFace NPTEL dataset loaded (streaming mode, raw audio bytes).")
 
-    # Fetch static validation samples for real-time health checks
+    # Separate validation and training streams to prevent validation leakage
+    val_stream = dataset.take(10)
+    train_stream = dataset.skip(10)
+
+    # Fetch static validation samples for real-time health checks (from the validation stream)
     print("Fetching static validation samples for real-time health checks...")
     val_samples_processed = []
     try:
         local_preprocessor = AudioPreprocessor(sr=16000)
-        count = 0
-        for s in dataset:
+        for s in val_stream:
             try:
                 processed = PrefetchDataset._process_sample(
                     s, local_preprocessor, processor, g2p_manager
                 )
                 val_samples_processed.append(processed)
-                count += 1
-                if count >= 10:
-                    break
             except Exception as ex:
                 pass
-        print(f"✅ Preloaded {len(val_samples_processed)} validation samples.")
+        print(f"✅ Preloaded {len(val_samples_processed)} validation samples from the test split.")
     except Exception as e:
         print(f"⚠️ Warning: Could not preload validation samples: {e}")
 
@@ -542,7 +542,7 @@ def main():
     prefetch = 4 if args.dry_run else args.prefetch
     print(f"Initializing PrefetchDataset ({num_workers} workers, buffer={prefetch})...")
     processed_dataset = PrefetchDataset(
-        hf_stream=dataset,
+        hf_stream=train_stream,
         processor=processor,
         g2p_manager=g2p_manager,
         num_workers=num_workers,
