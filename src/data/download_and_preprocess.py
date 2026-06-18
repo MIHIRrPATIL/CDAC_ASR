@@ -1,4 +1,5 @@
 import os
+import sys
 import io
 import re
 import argparse
@@ -7,6 +8,12 @@ import soundfile as sf
 import librosa
 import torch
 import nltk
+
+# Add the project root to sys.path so we can run the script from any directory
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from datasets import load_dataset, Audio
 from transformers import Wav2Vec2Processor
 from src.g2p.g2p_utils import G2PManager
@@ -346,6 +353,8 @@ def main():
     args = parser.parse_args()
 
     hf_token = args.hf_token or os.environ.get("HF_TOKEN")
+    if isinstance(hf_token, str) and hf_token.strip().lower() in ["none", ""]:
+        hf_token = None
 
     print("Checking NLTK resources...")
     for res in ['averaged_perceptron_tagger', 'averaged_perceptron_tagger_eng', 'cmudict']:

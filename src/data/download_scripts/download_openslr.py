@@ -3,7 +3,13 @@ import sys
 import argparse
 import tarfile
 import shutil
+import re
 import requests
+
+# Add the project root to sys.path so we can run the script from any directory
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 try:
     from tqdm import tqdm
@@ -81,16 +87,8 @@ def extract_tar(archive_path, extract_to):
         print(f"⚠️ Error extracting archive: {e}")
         return False
 
-def parse_and_create_dataset(extracted_dir, dataset_save_path):
-    if not has_datasets:
-        print("❌ Error: The 'datasets' library is not installed in the environment. Please run: pip install datasets")
-        return False
-
-    print(f"Scanning extracted directory: {extracted_dir}...")
-    
-    # 1. Find all WAV files recursively
+def parse_and_create_dataset_simple(extracted_dir, dataset_save_path):
     wav_files = {}
-    print("Finding WAV files...")
     for root, dirs, files in os.walk(extracted_dir):
         for f in files:
             if f.lower().endswith(".wav"):
@@ -98,12 +96,6 @@ def parse_and_create_dataset(extracted_dir, dataset_save_path):
                 name = os.path.splitext(f)[0]
                 wav_files[name] = abs_path
                 
-    print(f"Found {len(wav_files)} WAV files.")
-    if not wav_files:
-        print("❌ Error: No WAV files found in the extracted directory!")
-        return False
-
-    # 2. Look for transcription files (case-insensitive search for transcription or text)
     trans_file = None
     possible_names = ["transcription.txt", "transcriptions.txt", "transcription.tsv", "text"]
     for root, dirs, files in os.walk(extracted_dir):
@@ -115,87 +107,194 @@ def parse_and_create_dataset(extracted_dir, dataset_save_path):
             break
             
     if not trans_file:
-        print("Looking for any .txt or .tsv files as fallback...")
-        for root, dirs, files in os.walk(extracted_dir):
-            for f in files:
-                if f.endswith(".txt") or f.endswith(".tsv"):
-                    path = os.path.join(root, f)
-                    try:
-                        with open(path, "r", encoding="utf-8") as file:
-                            lines = [file.readline() for _ in range(5)]
-                            valid_lines = 0
-                            for line in lines:
-                                if not line.strip():
-                                    continue
-                                parts = line.strip().split(None, 1)
-                                if len(parts) == 2:
-                                    valid_lines += 1
-                            if valid_lines >= 2:
-                                trans_file = path
-                                break
-                    except Exception:
-                        pass
-            if trans_file:
-                break
-
-    if not trans_file:
-        print("❌ Error: Could not find any transcription text file!")
         return False
-        
-    print(f"Using transcription file: {trans_file}")
-    
-    # 3. Read and parse transcription file
+
     samples = []
-    unmatched_count = 0
     with open(trans_file, "r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            
-            parts = line.split(None, 1)
+            parts = line.strip().split(None, 1)
             if len(parts) != 2:
                 continue
-                
             audio_id, transcription = parts
-            
-            # Skip potential header row
-            if audio_id.lower() in ["path", "id", "file_name", "audio_id"] and transcription.lower() in ["sentence", "transcription", "text"]:
+            if audio_id.lower() in ["path", "id", "file_name", "audio_id"]:
                 continue
-                
-            audio_key = audio_id
-            if audio_key.endswith(".wav"):
-                audio_key = audio_key[:-4]
-                
+            audio_key = audio_id[:-4] if audio_id.endswith(".wav") else audio_id
             wav_path = wav_files.get(audio_key)
-            if not wav_path:
-                # Suffix/prefix matching fallback
-                for name, path in wav_files.items():
-                    if name.endswith(audio_key) or audio_key.endswith(name):
-                        wav_path = path
-                        break
-                        
             if wav_path:
                 samples.append({
                     "audio": wav_path,
                     "transcription": transcription.strip()
                 })
-            else:
-                unmatched_count += 1
-                if unmatched_count <= 5:
-                    print(f"Warning: Could not find WAV file for audio ID: {audio_id}")
+    return samples
 
-    print(f"Mapped {len(samples)} samples. Unmatched: {unmatched_count}")
+def parse_kaldi_and_slice(extracted_dir, dataset_save_path):
+    if not has_datasets:
+        print("❌ Error: The 'datasets' library is not installed in the environment. Please run: pip install datasets")
+        return False
+
+    import soundfile as sf
+    print("Parsing Kaldi-style data structure for OpenSLR 104...")
+    
+    # Locate transcripts, segments, and wav.scp
+    text_file = None
+    segments_file = None
+    wav_scp_file = None
+    
+    for root, dirs, files in os.walk(extracted_dir):
+        for f in files:
+            path = os.path.join(root, f)
+            if f == "text":
+                text_file = path
+            elif f == "segments":
+                segments_file = path
+            elif f == "wav.scp":
+                wav_scp_file = path
+                
+    if not text_file:
+        print("❌ Error: Could not find 'text' (transcriptions) file!")
+        return False
+        
+    print(f"Using transcription file: {text_file}")
+    
+    # Fallback to simple parser if Kaldi metadata is missing
+    if not segments_file or not wav_scp_file:
+        print("Warning: 'segments' or 'wav.scp' not found. Falling back to simple file matcher.")
+        samples = parse_and_create_dataset_simple(extracted_dir, dataset_save_path)
+        if not samples:
+            print("❌ Error: No samples were parsed successfully!")
+            return False
+    else:
+        print(f"Found segments file: {segments_file}")
+        print(f"Found wav.scp file: {wav_scp_file}")
+        
+        # 1. Parse wav.scp
+        long_wavs = {}
+        with open(wav_scp_file, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split(None, 1)
+                if len(parts) == 2:
+                    long_id, path_val = parts
+                    path_val = path_val.strip()
+                    
+                    if path_val.endswith("|"):
+                        matches = re.findall(r"[^\s/]+\.wav", path_val)
+                        wav_name = matches[-1] if matches else long_id + ".wav"
+                    else:
+                        wav_name = os.path.basename(path_val)
+                    
+                    found_path = None
+                    for root, dirs, files in os.walk(extracted_dir):
+                        if wav_name in files:
+                            found_path = os.path.join(root, wav_name)
+                            break
+                    if not found_path:
+                        for root, dirs, files in os.walk(extracted_dir):
+                            if f"{long_id}.wav" in files:
+                                found_path = os.path.join(root, f"{long_id}.wav")
+                                break
+                                
+                    if found_path:
+                        long_wavs[long_id] = os.path.abspath(found_path)
+                    else:
+                        print(f"Warning: Could not locate audio file for long ID: {long_id} (searched for {wav_name})")
+                        
+        print(f"Parsed {len(long_wavs)} long-form source WAV files.")
+        
+        # 2. Parse segments
+        segments = {}
+        with open(segments_file, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 4:
+                    seg_id, long_id, start_str, end_str = parts[:4]
+                    try:
+                        segments[seg_id] = {
+                            "long_id": long_id,
+                            "start": float(start_str),
+                            "end": float(end_str)
+                        }
+                    except ValueError:
+                        pass
+                        
+        print(f"Parsed {len(segments)} segment definitions.")
+        
+        # 3. Create directory for sliced WAVs
+        sliced_dir = os.path.abspath(os.path.join(dataset_save_path, "wavs"))
+        os.makedirs(sliced_dir, exist_ok=True)
+        
+        # 4. Parse text and slice audio
+        samples = []
+        skipped_count = 0
+        cached_long_audio = {}
+        
+        with open(text_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            
+        print(f"Processing and slicing {len(lines)} transcript segments...")
+        iterator = tqdm(lines, desc="Slicing audio") if has_tqdm else lines
+        
+        for line in iterator:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            seg_id, transcription = parts
+            
+            if seg_id.lower() in ["path", "id", "file_name", "audio_id"] and transcription.lower() in ["sentence", "transcription", "text"]:
+                continue
+                
+            seg_def = segments.get(seg_id)
+            if not seg_def:
+                skipped_count += 1
+                continue
+                
+            long_id = seg_def["long_id"]
+            long_path = long_wavs.get(long_id)
+            if not long_path:
+                skipped_count += 1
+                continue
+                
+            seg_wav_path = os.path.join(sliced_dir, f"{seg_id}.wav")
+            
+            try:
+                if long_path not in cached_long_audio:
+                    if len(cached_long_audio) >= 5:
+                        cached_long_audio.pop(next(iter(cached_long_audio)))
+                    audio_data, sr = sf.read(long_path)
+                    cached_long_audio[long_path] = (audio_data, sr)
+                else:
+                    audio_data, sr = cached_long_audio[long_path]
+                    
+                start_sample = int(seg_def["start"] * sr)
+                end_sample = int(seg_def["end"] * sr)
+                
+                sliced_data = audio_data[start_sample:end_sample]
+                if len(sliced_data) > 0:
+                    sf.write(seg_wav_path, sliced_data, sr)
+                    samples.append({
+                        "audio": seg_wav_path,
+                        "transcription": transcription.strip()
+                    })
+                else:
+                    skipped_count += 1
+            except Exception as e:
+                skipped_count += 1
+                if skipped_count <= 5:
+                    print(f"Error slicing segment {seg_id}: {e}")
+
+        print(f"Successfully sliced and mapped {len(samples)} segments. Skipped/Unmatched: {skipped_count}")
+
     if not samples:
         print("❌ Error: No samples were mapped successfully!")
         return False
         
-    # 4. Create Hugging Face Dataset and cast to Audio
+    # 5. Create Hugging Face Dataset and save to disk
     print("Creating Hugging Face Dataset...")
     dataset = Dataset.from_list(samples)
     dataset = dataset.cast_column("audio", Audio(decode=False))
     
-    # Save to disk
     print(f"Saving dataset to disk at {dataset_save_path}...")
     dataset.save_to_disk(dataset_save_path)
     print(f"✅ Success! Dataset saved to '{dataset_save_path}'.")
@@ -214,7 +313,6 @@ def main():
     archive_path = os.path.join(args.temp_dir, archive_name)
     extracted_dir = os.path.join(args.temp_dir, "extracted")
     
-    # Try downloading from main site, fallback to mirror
     download_urls = [
         f"https://www.openslr.org/resources/104/{archive_name}",
         f"https://openslr.trmal.net/resources/104/{archive_name}"
@@ -244,8 +342,8 @@ def main():
     else:
         print(f"Extracted directory already exists at {extracted_dir}. Skipping extraction.")
         
-    # Process
-    if parse_and_create_dataset(extracted_dir, args.save_path):
+    # Process using Kaldi slicer
+    if parse_kaldi_and_slice(extracted_dir, args.save_path):
         print("✅ Dataset construction finished successfully!")
         
         # Cleanup if requested
@@ -254,7 +352,6 @@ def main():
             try:
                 shutil.rmtree(extracted_dir)
                 os.remove(archive_path)
-                # Remove temp_dir if empty
                 if not os.listdir(args.temp_dir):
                     os.rmdir(args.temp_dir)
                 print("✓ Temporary files cleaned up successfully.")
