@@ -14,7 +14,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from datasets import load_dataset, Audio
+from datasets import load_dataset, Audio, load_from_disk, concatenate_datasets, Dataset
 from transformers import Wav2Vec2Processor
 from src.g2p.g2p_utils import G2PManager
 from src.utils.audio_utils import AudioPreprocessor
@@ -136,149 +136,186 @@ def lexical_filter(text, g2p_manager, tokenizer):
     return valid_words > 0
 
 def load_mixed_dataset(processor, g2p_manager, token=None, local_openslr_dir="local_openslr_104"):
-    """Loads and samples the datasets dynamically. 
-    It exhaustively loads the non-NPTEL datasets, then loads an equal amount of NPTEL."""
+    """Loads and samples the datasets dynamically using memory-mapped Arrow tables (0-RAM)."""
     
-    samples = []
-    print("Loading non-NPTEL datasets to determine target balanced size...")
-
-    # Helper function to load and filter a dataset
-    def load_and_filter(path, split, name=None, config=None, text_keys=None, source_label=None, trust_remote_code=False):
+    datasets_list = []
+    
+    # Helper function to load, filter, and standardize a dataset using Arrow operations (0-RAM)
+    def load_and_standardize(path, split, name=None, config=None, text_keys=None, source_label=None, trust_remote_code=False):
         print(f"Loading {path} (config={config}, split={split})...")
         try:
             if config:
-                ds = load_dataset(path, config, split=split, streaming=False, token=token, trust_remote_code=trust_remote_code)
+                ds = load_dataset(path, config, split=split, token=token, trust_remote_code=trust_remote_code)
             else:
-                ds = load_dataset(path, split=split, streaming=False, token=token, trust_remote_code=trust_remote_code)
+                ds = load_dataset(path, split=split, token=token, trust_remote_code=trust_remote_code)
             
+            # Prevent audio decoding into memory
             ds = ds.cast_column("audio", Audio(decode=False))
-            count = 0
-            for sample in ds:
-                # Find text
+            
+            def filter_fn(example):
                 text = ""
                 if text_keys:
                     for k in text_keys:
-                        if sample.get(k):
-                            text = sample[k]
+                        if example.get(k):
+                            text = example[k]
                             break
                 if not text:
-                    text = sample.get("sentence") or sample.get("text") or sample.get("transcription") or sample.get("normalized_text") or ""
-                
+                    text = example.get("sentence") or example.get("text") or example.get("transcription") or example.get("normalized_text") or ""
                 text = str(text).strip()
-                if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    # Keep only essential fields to avoid high RAM usage
-                    filtered_sample = {
-                        "audio": sample["audio"],
-                        "text": text,
-                        "source_dataset": source_label
-                    }
-                    samples.append(filtered_sample)
-                    count += 1
-            print(f"✓ Loaded and filtered {count} samples from {path}.")
+                return is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer)
+
+            ds_filtered = ds.filter(filter_fn, desc=f"Filtering {source_label}")
+            
+            def map_fn(example):
+                text = ""
+                if text_keys:
+                    for k in text_keys:
+                        if example.get(k):
+                            text = example[k]
+                            break
+                if not text:
+                    text = example.get("sentence") or example.get("text") or example.get("transcription") or example.get("normalized_text") or ""
+                return {
+                    "audio": example["audio"],
+                    "text": str(text).strip(),
+                    "source_dataset": source_label
+                }
+                
+            columns_to_remove = [col for col in ds_filtered.column_names if col not in ["audio", "text", "source_dataset"]]
+            ds_standardized = ds_filtered.map(
+                map_fn,
+                remove_columns=columns_to_remove,
+                desc=f"Standardizing {source_label}"
+            )
+            
+            datasets_list.append(ds_standardized)
+            print(f"✓ Loaded and standardized {len(ds_standardized)} samples from {path}.")
         except Exception as e:
             print(f"⚠️ Error loading {path}: {e}")
 
     # 1. Common Voice India Accent
-    load_and_filter("WillHeld/india_accent_cv", "train", text_keys=["sentence"], source_label="common_voice")
+    load_and_standardize("WillHeld/india_accent_cv", "train", text_keys=["sentence"], source_label="common_voice")
 
     # 2. theothertom/indian_english_extended
-    load_and_filter("theothertom/indian_english_extended", "train", text_keys=["transcription", "sentence"], source_label="theothertom_extended")
+    load_and_standardize("theothertom/indian_english_extended", "train", text_keys=["transcription", "sentence"], source_label="theothertom_extended")
 
     # 3. theothertom/indian_english_bigger
-    load_and_filter("theothertom/indian_english_bigger", "train", text_keys=["transcription", "sentence"], source_label="theothertom_bigger")
+    load_and_standardize("theothertom/indian_english_bigger", "train", text_keys=["transcription", "sentence"], source_label="theothertom_bigger")
 
     # 4. theothertom/indian_english_audio_2
-    load_and_filter("theothertom/indian_english_audio_2", "train", text_keys=["transcription", "sentence"], source_label="theothertom_audio_2")
+    load_and_standardize("theothertom/indian_english_audio_2", "train", text_keys=["transcription", "sentence"], source_label="theothertom_audio_2")
 
     # 5. Svarah (loads 'test' split because 'train' split doesn't exist)
-    load_and_filter("ai4bharat/Svarah", "test", text_keys=["transcription"], source_label="svarah")
+    load_and_standardize("ai4bharat/Svarah", "test", text_keys=["transcription"], source_label="svarah")
 
     # 6. OpenSLR 104 (bypasses loading script error if local folder exists)
+    local_openslr_loaded = False
     if os.path.exists(local_openslr_dir):
         print(f"Loading local OpenSLR 104 from disk ('{local_openslr_dir}')...")
         try:
-            import datasets
-            local_ds = datasets.load_from_disk(local_openslr_dir)
-            count = 0
-            for sample in local_ds:
-                text = sample.get("sentence") or sample.get("text") or sample.get("transcription") or ""
+            local_ds = load_from_disk(local_openslr_dir)
+            local_ds = local_ds.cast_column("audio", Audio(decode=False))
+            
+            def filter_fn(example):
+                text = example.get("sentence") or example.get("text") or example.get("transcription") or ""
                 text = str(text).strip()
-                if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    samples.append({
-                        "audio": sample["audio"],
-                        "text": text,
-                        "source_dataset": "openslr_104"
-                    })
-                    count += 1
-            print(f"✓ Loaded and filtered {count} samples from local OpenSLR 104.")
+                return is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer)
+
+            ds_filtered = local_ds.filter(filter_fn, desc="Filtering openslr_104")
+            
+            def map_fn(example):
+                text = example.get("sentence") or example.get("text") or example.get("transcription") or ""
+                return {
+                    "audio": example["audio"],
+                    "text": str(text).strip(),
+                    "source_dataset": "openslr_104"
+                }
+                
+            columns_to_remove = [col for col in ds_filtered.column_names if col not in ["audio", "text", "source_dataset"]]
+            ds_standardized = ds_filtered.map(map_fn, remove_columns=columns_to_remove, desc="Standardizing openslr_104")
+            datasets_list.append(ds_standardized)
+            local_openslr_loaded = True
+            print(f"✓ Loaded local OpenSLR 104: {len(ds_standardized)} samples.")
         except Exception as e:
             print(f"⚠️ Error loading local OpenSLR 104: {e}")
-            print("Falling back to Hugging Face datasets loader...")
-            load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104", trust_remote_code=True)
-    else:
-        load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104", trust_remote_code=True)
+            
+    if not local_openslr_loaded:
+        load_and_standardize("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104", trust_remote_code=True)
 
     # 7. Eka Care (Medical ASR)
     print("Loading Eka Care Medical ASR...")
     try:
-        eka_ds = load_dataset("eka-care/medical-asr", split="train", streaming=False, token=token)
+        eka_ds = load_dataset("eka-care/medical-asr", split="train", token=token)
+        eka_ds = eka_ds.filter(lambda x: not x.get("is_synthetic", False))
         eka_ds = eka_ds.cast_column("audio", Audio(decode=False))
-        count = 0
-        for sample in eka_ds:
-            is_synthetic = sample.get("is_synthetic", False)
-            if not is_synthetic:
-                text = sample.get("transcription") or sample.get("text") or ""
-                if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    samples.append({
-                        "audio": sample["audio"],
-                        "text": text,
-                        "source_dataset": "eka_care"
-                    })
-                    count += 1
-        print(f"✓ Loaded and filtered {count} samples from eka-care/medical-asr.")
+        
+        def filter_fn(example):
+            text = example.get("transcription") or example.get("text") or ""
+            text = str(text).strip()
+            return is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer)
+
+        ds_filtered = eka_ds.filter(filter_fn, desc="Filtering eka_care")
+        
+        def map_fn(example):
+            text = example.get("transcription") or example.get("text") or ""
+            return {
+                "audio": example["audio"],
+                "text": str(text).strip(),
+                "source_dataset": "eka_care"
+            }
+            
+        columns_to_remove = [col for col in ds_filtered.column_names if col not in ["audio", "text", "source_dataset"]]
+        ds_standardized = ds_filtered.map(map_fn, remove_columns=columns_to_remove, desc="Standardizing eka_care")
+        datasets_list.append(ds_standardized)
+        print(f"✓ Loaded Eka Care: {len(ds_standardized)} samples.")
     except Exception as e:
         print(f"⚠️ Error loading Eka Care: {e}")
 
-    n_others = len(samples)
+    if not datasets_list:
+        raise ValueError("No non-NPTEL datasets were loaded successfully!")
+
+    other_datasets = concatenate_datasets(datasets_list)
+    n_others = len(other_datasets)
     print(f"Total non-NPTEL samples gathered: {n_others}")
     print(f"Streaming exactly {n_others} samples from NPTEL to balance...")
 
     try:
-        # Load NPTEL in streaming mode to avoid downloading the 100GB archive locally
+        # Load NPTEL in streaming mode
         nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=True, token=token)
         nptel_ds = nptel_ds.cast_column("audio", Audio(decode=False))
-        nptel_iter = iter(nptel_ds)
-        loaded = 0
-        checked = 0
-        print("Starting stream iteration. Note: The first sample may take a few minutes as the first NPTEL data shard (~500MB) is downloaded in the background.")
-        while loaded < n_others:
-            try:
-                sample = next(nptel_iter)
+        
+        def nptel_generator():
+            loaded = 0
+            checked = 0
+            for sample in nptel_ds:
                 checked += 1
                 if checked % 1000 == 0:
                     print(f"   [NPTEL Stream] Processed {checked} stream records, matched and balanced {loaded}/{n_others} samples...", flush=True)
                 
                 text = sample.get("text") or sample.get("transcription") or ""
+                text = str(text).strip()
                 if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    samples.append({
+                    yield {
                         "audio": sample["audio"],
                         "text": text,
                         "source_dataset": "nptel"
-                    })
+                    }
                     loaded += 1
-            except StopIteration:
-                print("Reached end of NPTEL stream before matching the count!")
-                break
-        print(f"✓ Balanced with {loaded} NPTEL samples (checked {checked} stream items total).")
-    except Exception as e:
-        print(f"⚠️ Error loading NPTEL: {e}")
+                    if loaded >= n_others:
+                        break
+            print(f"✓ Balanced with {loaded} NPTEL samples (checked {checked} stream items total).")
 
-    print(f"✓ Concatenated and balanced dataset. Total samples: {len(samples)}")
-    # Shuffle dataset
-    np.random.shuffle(samples)
+        nptel_dataset = Dataset.from_generator(nptel_generator, features=other_datasets.features)
+        final_dataset = concatenate_datasets([other_datasets, nptel_dataset])
+    except Exception as e:
+        print(f"⚠️ Error loading or processing NPTEL: {e}")
+        final_dataset = other_datasets
+
+    print(f"✓ Concatenated and balanced dataset. Total samples: {len(final_dataset)}")
     
-    from datasets import Dataset
-    return Dataset.from_list(samples)
+    # Shuffle out-of-core
+    final_dataset = final_dataset.shuffle(seed=42)
+    return final_dataset
 
 def build_and_apply_vocab_patch(dataset, processor, g2p_manager, patch_path):
     """Verify vocabulary against tokenizer. Log any unmapped OOV words to patch_vocab.dict."""
