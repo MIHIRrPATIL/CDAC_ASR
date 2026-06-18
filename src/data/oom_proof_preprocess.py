@@ -64,7 +64,15 @@ def preprocess_batch(batch, processor_dir, dict_path):
                 raise ValueError("Invalid audio format or missing audio content.")
 
             if sr != 16000:
-                audio_array = librosa.resample(audio_array, orig_sr=sr, target_sr=16000)
+                try:
+                    from scipy.signal import resample_poly
+                    import math
+                    gcd = math.gcd(sr, 16000)
+                    up = 16000 // gcd
+                    down = sr // gcd
+                    audio_array = resample_poly(audio_array, up, down)
+                except Exception:
+                    audio_array = librosa.resample(audio_array, orig_sr=sr, target_sr=16000, res_type="kaiser_fast")
 
             clean_audio = PREPROCESSOR.preprocess(audio_array)
             if len(clean_audio) == 0:

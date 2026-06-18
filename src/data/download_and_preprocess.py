@@ -71,7 +71,15 @@ def preprocess_batch(batch, processor_dir, dict_path):
 
             # 2. Resample to 16kHz if needed
             if sr != 16000:
-                audio_array = librosa.resample(audio_array, orig_sr=sr, target_sr=16000)
+                try:
+                    from scipy.signal import resample_poly
+                    import math
+                    gcd = math.gcd(sr, 16000)
+                    up = 16000 // gcd
+                    down = sr // gcd
+                    audio_array = resample_poly(audio_array, up, down)
+                except Exception:
+                    audio_array = librosa.resample(audio_array, orig_sr=sr, target_sr=16000, res_type="kaiser_fast")
 
             # 3. Preprocess Audio (FFT Filter + VAD Trim)
             clean_audio = PREPROCESSOR.preprocess(audio_array)

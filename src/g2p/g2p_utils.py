@@ -56,6 +56,7 @@ class G2PManager:
             print("Warning: g2p-en not found. Neural fallback disabled.")
             self.neural_g2p = None
             
+        self.oov_cache = {}
         print(f"Loaded {len(self.phoneme_dict)} words from {dict_path}")
 
     def _load_dict(self, path):
@@ -94,6 +95,10 @@ class G2PManager:
         # 1. First Priority: Dictionary Lookup
         if word in self.phoneme_dict:
             return self.phoneme_dict[word]
+            
+        # Check OOV cache
+        if word in self.oov_cache:
+            return self.oov_cache[word]
         
         # 2. Second Priority: Neural G2P Fallback + IPA Mapping
         if self.neural_g2p is not None:
@@ -112,6 +117,7 @@ class G2PManager:
                     # Last resort fallback (lowercase and clean)
                     ipa_phonemes.append(clean_phoneme(p.lower()))
             
+            self.oov_cache[word] = ipa_phonemes
             return ipa_phonemes
             
         # 3. Final Resort: Identity Mapping
