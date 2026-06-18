@@ -135,9 +135,9 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
         print(f"Loading {path} (config={config}, split={split})...")
         try:
             if config:
-                ds = load_dataset(path, config, split=split, streaming=False, token=token)
+                ds = load_dataset(path, config, split=split, streaming=False, token=token, trust_remote_code=True)
             else:
-                ds = load_dataset(path, split=split, streaming=False, token=token)
+                ds = load_dataset(path, split=split, streaming=False, token=token, trust_remote_code=True)
             
             ds = ds.cast_column("audio", Audio(decode=False))
             count = 0
@@ -172,22 +172,22 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
     # 2. theothertom/indian_english_extended
     load_and_filter("theothertom/indian_english_extended", "train", text_keys=["transcription", "sentence"], source_label="theothertom_extended")
 
-    # 4. theothertom/indian_english_bigger
+    # 3. theothertom/indian_english_bigger
     load_and_filter("theothertom/indian_english_bigger", "train", text_keys=["transcription", "sentence"], source_label="theothertom_bigger")
 
-    # 5. theothertom/indian_english_audio_2
+    # 4. theothertom/indian_english_audio_2
     load_and_filter("theothertom/indian_english_audio_2", "train", text_keys=["transcription", "sentence"], source_label="theothertom_audio_2")
 
-    # 6. Svarah
-    load_and_filter("ai4bharat/Svarah", "train", text_keys=["transcription"], source_label="svarah")
+    # 5. Svarah (loads 'test' split because 'train' split doesn't exist)
+    load_and_filter("ai4bharat/Svarah", "test", text_keys=["transcription"], source_label="svarah")
 
-    # 7. OpenSLR 104
+    # 6. OpenSLR 104
     load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104")
 
-    # 8. Eka Care (Medical ASR)
+    # 7. Eka Care (Medical ASR)
     print("Loading Eka Care Medical ASR...")
     try:
-        eka_ds = load_dataset("eka-care/medical-asr", split="train", streaming=False, token=token)
+        eka_ds = load_dataset("eka-care/medical-asr", split="train", streaming=False, token=token, trust_remote_code=True)
         eka_ds = eka_ds.cast_column("audio", Audio(decode=False))
         count = 0
         for sample in eka_ds:
@@ -207,23 +207,28 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
 
     n_others = len(samples)
     print(f"Total non-NPTEL samples gathered: {n_others}")
-    print(f"Loading exactly {n_others} samples from NPTEL to balance...")
+    print(f"Streaming exactly {n_others} samples from NPTEL to balance...")
 
     try:
-        nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=False, token=token)
+        # Load NPTEL in streaming mode to avoid downloading the 100GB archive locally
+        nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=True, token=token, trust_remote_code=True)
         nptel_ds = nptel_ds.cast_column("audio", Audio(decode=False))
+        nptel_iter = iter(nptel_ds)
         loaded = 0
-        for sample in nptel_ds:
-            if loaded >= n_others:
+        while loaded < n_others:
+            try:
+                sample = next(nptel_iter)
+                text = sample.get("text") or sample.get("transcription") or ""
+                if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
+                    samples.append({
+                        "audio": sample["audio"],
+                        "text": text,
+                        "source_dataset": "nptel"
+                    })
+                    loaded += 1
+            except StopIteration:
+                print("Reached end of NPTEL stream before matching the count!")
                 break
-            text = sample.get("text") or sample.get("transcription") or ""
-            if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                samples.append({
-                    "audio": sample["audio"],
-                    "text": text,
-                    "source_dataset": "nptel"
-                })
-                loaded += 1
         print(f"✓ Balanced with {loaded} NPTEL samples.")
     except Exception as e:
         print(f"⚠️ Error loading NPTEL: {e}")
