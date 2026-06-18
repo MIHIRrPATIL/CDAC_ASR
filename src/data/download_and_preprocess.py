@@ -125,89 +125,111 @@ def lexical_filter(text, g2p_manager, tokenizer):
 
 def load_mixed_dataset(processor, g2p_manager, token=None):
     """Loads and samples the datasets dynamically. 
-    It exhaustively loads the 4 non-NPTEL datasets, then loads an equal amount of NPTEL."""
+    It exhaustively loads the non-NPTEL datasets, then loads an equal amount of NPTEL."""
     
     samples = []
-    print("Loading 4 non-NPTEL datasets to determine target balanced size...")
+    print("Loading non-NPTEL datasets to determine target balanced size...")
 
-    # Load Common Voice (West India accent filter)
-    print("Loading Mozilla Common Voice India (West Indian Locale)...")
-    try:
-        cv_ds = load_dataset("mozilla-foundation/common_voice_13_0", "en", split="train", streaming=True, token=token)
-        cv_ds = cv_ds.cast_column("audio", Audio(decode=False))
-        for sample in cv_ds:
-            acc = str(sample.get("accents", sample.get("accent", ""))).lower()
-            if "marathi" in acc or "gujarati" in acc or "india" in acc:
-                text = sample.get("sentence") or sample.get("text") or ""
+    # Helper function to load and filter a dataset
+    def load_and_filter(path, split, name=None, config=None, text_keys=None, source_label=None):
+        print(f"Loading {path} (config={config}, split={split})...")
+        try:
+            if config:
+                ds = load_dataset(path, config, split=split, streaming=False, token=token)
+            else:
+                ds = load_dataset(path, split=split, streaming=False, token=token)
+            
+            ds = ds.cast_column("audio", Audio(decode=False))
+            count = 0
+            for sample in ds:
+                # Find text
+                text = ""
+                if text_keys:
+                    for k in text_keys:
+                        if sample.get(k):
+                            text = sample[k]
+                            break
+                if not text:
+                    text = sample.get("sentence") or sample.get("text") or sample.get("transcription") or sample.get("normalized_text") or ""
+                
+                text = str(text).strip()
                 if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    sample["source_dataset"] = "common_voice"
-                    samples.append(sample)
-    except Exception as e:
-        print(f"Error loading Mozilla Common Voice: {e}")
+                    # Keep only essential fields to avoid high RAM usage
+                    filtered_sample = {
+                        "audio": sample["audio"],
+                        "text": text,
+                        "source_dataset": source_label
+                    }
+                    samples.append(filtered_sample)
+                    count += 1
+            print(f"✓ Loaded and filtered {count} samples from {path}.")
+        except Exception as e:
+            print(f"⚠️ Error loading {path}: {e}")
 
-    # Load Svarah (North India accent filter)
-    print("Loading Svarah...")
-    try:
-        svarah_ds = load_dataset("ai4bharat/Svarah", split="train", streaming=True)
-        svarah_ds = svarah_ds.cast_column("audio", Audio(decode=False))
-        for sample in svarah_ds:
-            text = sample.get("transcription") or sample.get("text") or ""
-            if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                sample["source_dataset"] = "svarah"
-                samples.append(sample)
-    except Exception as e:
-        print(f"Error loading Svarah: {e}")
+    # 1. Common Voice India Accent
+    load_and_filter("WillHeld/india_accent_cv", "train", text_keys=["sentence"], source_label="common_voice")
 
-    # Load OpenSLR 104 (East India accent split)
-    print("Loading OpenSLR 104...")
-    try:
-        openslr_ds = load_dataset("openslr", "104", split="train", streaming=True)
-        openslr_ds = openslr_ds.cast_column("audio", Audio(decode=False))
-        for sample in openslr_ds:
-            text = sample.get("transcription") or sample.get("text") or ""
-            if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                sample["source_dataset"] = "openslr_104"
-                samples.append(sample)
-    except Exception as e:
-        print(f"Error loading OpenSLR 104: {e}")
+    # 2. Google FLEURS (en_in)
+    load_and_filter("google/fleurs", "train", config="en_in", text_keys=["transcription", "raw_transcription"], source_label="fleurs")
 
-    # Load Eka Care (Medical ASR)
+    # 3. theothertom/indian_english_extended
+    load_and_filter("theothertom/indian_english_extended", "train", text_keys=["transcription", "sentence"], source_label="theothertom_extended")
+
+    # 4. theothertom/indian_english_bigger
+    load_and_filter("theothertom/indian_english_bigger", "train", text_keys=["transcription", "sentence"], source_label="theothertom_bigger")
+
+    # 5. theothertom/indian_english_audio_2
+    load_and_filter("theothertom/indian_english_audio_2", "train", text_keys=["transcription", "sentence"], source_label="theothertom_audio_2")
+
+    # 6. Svarah
+    load_and_filter("ai4bharat/Svarah", "train", text_keys=["transcription"], source_label="svarah")
+
+    # 7. OpenSLR 104
+    load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104")
+
+    # 8. Eka Care (Medical ASR)
     print("Loading Eka Care Medical ASR...")
     try:
-        eka_ds = load_dataset("eka-care/medical-asr", split="train", streaming=True, token=token)
+        eka_ds = load_dataset("eka-care/medical-asr", split="train", streaming=False, token=token)
         eka_ds = eka_ds.cast_column("audio", Audio(decode=False))
+        count = 0
         for sample in eka_ds:
             is_synthetic = sample.get("is_synthetic", False)
             if not is_synthetic:
                 text = sample.get("transcription") or sample.get("text") or ""
                 if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    sample["source_dataset"] = "eka_care"
-                    samples.append(sample)
+                    samples.append({
+                        "audio": sample["audio"],
+                        "text": text,
+                        "source_dataset": "eka_care"
+                    })
+                    count += 1
+        print(f"✓ Loaded and filtered {count} samples from eka-care/medical-asr.")
     except Exception as e:
-        print(f"Error loading Eka Care: {e}")
+        print(f"⚠️ Error loading Eka Care: {e}")
 
     n_others = len(samples)
     print(f"Total non-NPTEL samples gathered: {n_others}")
     print(f"Loading exactly {n_others} samples from NPTEL to balance...")
 
     try:
-        nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=True)
+        nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=False, token=token)
         nptel_ds = nptel_ds.cast_column("audio", Audio(decode=False))
-        nptel_iter = iter(nptel_ds)
         loaded = 0
-        while loaded < n_others:
-            try:
-                sample = next(nptel_iter)
-                text = sample.get("text") or sample.get("transcription") or ""
-                if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    sample["source_dataset"] = "nptel"
-                    samples.append(sample)
-                    loaded += 1
-            except StopIteration:
-                print("Reached end of NPTEL stream before matching the count!")
+        for sample in nptel_ds:
+            if loaded >= n_others:
                 break
+            text = sample.get("text") or sample.get("transcription") or ""
+            if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
+                samples.append({
+                    "audio": sample["audio"],
+                    "text": text,
+                    "source_dataset": "nptel"
+                })
+                loaded += 1
+        print(f"✓ Balanced with {loaded} NPTEL samples.")
     except Exception as e:
-        print(f"Error loading NPTEL: {e}")
+        print(f"⚠️ Error loading NPTEL: {e}")
 
     print(f"✓ Concatenated and balanced dataset. Total samples: {len(samples)}")
     # Shuffle dataset
