@@ -128,7 +128,7 @@ def lexical_filter(text, g2p_manager, tokenizer):
         
     return valid_words > 0
 
-def load_mixed_dataset(processor, g2p_manager, token=None):
+def load_mixed_dataset(processor, g2p_manager, token=None, local_openslr_dir="local_openslr_104"):
     """Loads and samples the datasets dynamically. 
     It exhaustively loads the non-NPTEL datasets, then loads an equal amount of NPTEL."""
     
@@ -187,11 +187,11 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
     load_and_filter("ai4bharat/Svarah", "test", text_keys=["transcription"], source_label="svarah")
 
     # 6. OpenSLR 104 (bypasses loading script error if local folder exists)
-    if os.path.exists("local_openslr_104"):
-        print("Loading local OpenSLR 104 from disk ('local_openslr_104')...")
+    if os.path.exists(local_openslr_dir):
+        print(f"Loading local OpenSLR 104 from disk ('{local_openslr_dir}')...")
         try:
             import datasets
-            local_ds = datasets.load_from_disk("local_openslr_104")
+            local_ds = datasets.load_from_disk(local_openslr_dir)
             count = 0
             for sample in local_ds:
                 text = sample.get("sentence") or sample.get("text") or sample.get("transcription") or ""
@@ -339,6 +339,7 @@ def main():
     parser.add_argument("--processor_dir", default="models/processor_dir", help="Path to local processor config")
     parser.add_argument("--dict_path", default="src/g2p/output_v2_detailed.dict", help="Path to MFA dictionary for G2P")
     parser.add_argument("--save_dir", default="local_nptel_processed", help="Path to save the preprocessed dataset")
+    parser.add_argument("--local_openslr_dir", default="local_openslr_104", help="Path to local processed OpenSLR 104 dataset directory")
     parser.add_argument("--num_proc", type=int, default=40, help="Number of processes to use for preprocessing (default: 40)")
     parser.add_argument("--batch_size", type=int, default=100, help="Batch size for map function")
     parser.add_argument("--hf_token", default=None, help="Hugging Face authorization token")
@@ -360,7 +361,7 @@ def main():
 
     # 1. Load balanced mixture
     print("Loading datasets dynamically...")
-    mixed_dataset = load_mixed_dataset(processor, g2p_manager, token=hf_token)
+    mixed_dataset = load_mixed_dataset(processor, g2p_manager, token=hf_token, local_openslr_dir=args.local_openslr_dir)
 
     # 2. Extract and log OOV vocabulary patches
     patch_path = os.path.join(os.path.dirname(args.dict_path), "patch_vocab.dict")
