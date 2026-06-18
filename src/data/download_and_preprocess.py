@@ -103,13 +103,18 @@ def is_valid_english_script(text):
     except UnicodeEncodeError:
         return False
 
+_VOCAB_CACHE = None
+
 def lexical_filter(text, g2p_manager, tokenizer):
     """Verify that all tokens exist in dictionary or neural fallback. Drop if all map to <unk>."""
+    global _VOCAB_CACHE
     words = g2p_manager.tokenize(text)
     if not words:
         return False
     
-    vocab = tokenizer.get_vocab()
+    if _VOCAB_CACHE is None:
+        _VOCAB_CACHE = tokenizer.get_vocab()
+    vocab = _VOCAB_CACHE
     valid_words = 0
     
     for word in words:
@@ -181,8 +186,30 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
     # 5. Svarah (loads 'test' split because 'train' split doesn't exist)
     load_and_filter("ai4bharat/Svarah", "test", text_keys=["transcription"], source_label="svarah")
 
-    # 6. OpenSLR 104 (needs trust_remote_code=True for its loading script)
-    load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104", trust_remote_code=True)
+    # 6. OpenSLR 104 (bypasses loading script error if local folder exists)
+    if os.path.exists("local_openslr_104"):
+        print("Loading local OpenSLR 104 from disk ('local_openslr_104')...")
+        try:
+            import datasets
+            local_ds = datasets.load_from_disk("local_openslr_104")
+            count = 0
+            for sample in local_ds:
+                text = sample.get("sentence") or sample.get("text") or sample.get("transcription") or ""
+                text = str(text).strip()
+                if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
+                    samples.append({
+                        "audio": sample["audio"],
+                        "text": text,
+                        "source_dataset": "openslr_104"
+                    })
+                    count += 1
+            print(f"✓ Loaded and filtered {count} samples from local OpenSLR 104.")
+        except Exception as e:
+            print(f"⚠️ Error loading local OpenSLR 104: {e}")
+            print("Falling back to Hugging Face datasets loader...")
+            load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104", trust_remote_code=True)
+    else:
+        load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104", trust_remote_code=True)
 
     # 7. Eka Care (Medical ASR)
     print("Loading Eka Care Medical ASR...")
@@ -215,9 +242,15 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
         nptel_ds = nptel_ds.cast_column("audio", Audio(decode=False))
         nptel_iter = iter(nptel_ds)
         loaded = 0
+        checked = 0
+        print("Starting stream iteration. Note: The first sample may take a few minutes as the first NPTEL data shard (~500MB) is downloaded in the background.")
         while loaded < n_others:
             try:
                 sample = next(nptel_iter)
+                checked += 1
+                if checked % 1000 == 0:
+                    print(f"   [NPTEL Stream] Processed {checked} stream records, matched and balanced {loaded}/{n_others} samples...", flush=True)
+                
                 text = sample.get("text") or sample.get("transcription") or ""
                 if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
                     samples.append({
@@ -229,7 +262,7 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
             except StopIteration:
                 print("Reached end of NPTEL stream before matching the count!")
                 break
-        print(f"✓ Balanced with {loaded} NPTEL samples.")
+        print(f"✓ Balanced with {loaded} NPTEL samples (checked {checked} stream items total).")
     except Exception as e:
         print(f"⚠️ Error loading NPTEL: {e}")
 
