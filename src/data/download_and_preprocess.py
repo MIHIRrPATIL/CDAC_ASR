@@ -109,15 +109,15 @@ def lexical_filter(text, g2p_manager, tokenizer):
     if not words:
         return False
     
-    unk_id = tokenizer.unk_token_id or 1
+    vocab = tokenizer.get_vocab()
     valid_words = 0
     
     for word in words:
         phonemes = g2p_manager.convert_word(word)
         if len(phonemes) == 0:
             continue
-        ids = tokenizer(phonemes, is_split_into_words=True).input_ids
-        if all(i == unk_id for i in ids):
+        # If all phonemes for the word map to <unk> (not in vocabulary), skip it
+        if all(p not in vocab for p in phonemes):
             continue
         valid_words += 1
         
@@ -169,10 +169,7 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
     # 1. Common Voice India Accent
     load_and_filter("WillHeld/india_accent_cv", "train", text_keys=["sentence"], source_label="common_voice")
 
-    # 2. Google FLEURS (en_in)
-    load_and_filter("google/fleurs", "train", config="en_in", text_keys=["transcription", "raw_transcription"], source_label="fleurs")
-
-    # 3. theothertom/indian_english_extended
+    # 2. theothertom/indian_english_extended
     load_and_filter("theothertom/indian_english_extended", "train", text_keys=["transcription", "sentence"], source_label="theothertom_extended")
 
     # 4. theothertom/indian_english_bigger
