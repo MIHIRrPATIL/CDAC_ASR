@@ -284,28 +284,28 @@ def load_mixed_dataset(processor, g2p_manager, token=None, local_openslr_dir="lo
         nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=True, token=token)
         nptel_ds = nptel_ds.cast_column("audio", Audio(decode=False))
         
-        def nptel_generator():
-            loaded = 0
-            checked = 0
-            for sample in nptel_ds:
-                checked += 1
-                if checked % 1000 == 0:
-                    print(f"   [NPTEL Stream] Processed {checked} stream records, matched and balanced {loaded}/{n_others} samples...", flush=True)
-                
-                text = sample.get("text") or sample.get("transcription") or ""
-                text = str(text).strip()
-                if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
-                    yield {
-                        "audio": sample["audio"],
-                        "text": text,
-                        "source_dataset": "nptel"
-                    }
-                    loaded += 1
-                    if loaded >= n_others:
-                        break
-            print(f"✓ Balanced with {loaded} NPTEL samples (checked {checked} stream items total).")
+        nptel_samples = []
+        loaded = 0
+        checked = 0
+        for sample in nptel_ds:
+            checked += 1
+            if checked % 1000 == 0:
+                print(f"   [NPTEL Stream] Processed {checked} stream records, matched and balanced {loaded}/{n_others} samples...", flush=True)
+            
+            text = sample.get("text") or sample.get("transcription") or ""
+            text = str(text).strip()
+            if is_valid_english_script(text) and lexical_filter(text, g2p_manager, processor.tokenizer):
+                nptel_samples.append({
+                    "audio": sample["audio"],
+                    "text": text,
+                    "source_dataset": "nptel"
+                })
+                loaded += 1
+                if loaded >= n_others:
+                    break
+        print(f"✓ Balanced with {loaded} NPTEL samples (checked {checked} stream items total).")
 
-        nptel_dataset = Dataset.from_generator(nptel_generator, features=other_datasets.features)
+        nptel_dataset = Dataset.from_list(nptel_samples, features=other_datasets.features)
         final_dataset = concatenate_datasets([other_datasets, nptel_dataset])
     except Exception as e:
         print(f"⚠️ Error loading or processing NPTEL: {e}")
