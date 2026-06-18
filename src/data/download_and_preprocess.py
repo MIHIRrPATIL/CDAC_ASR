@@ -131,13 +131,13 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
     print("Loading non-NPTEL datasets to determine target balanced size...")
 
     # Helper function to load and filter a dataset
-    def load_and_filter(path, split, name=None, config=None, text_keys=None, source_label=None):
+    def load_and_filter(path, split, name=None, config=None, text_keys=None, source_label=None, trust_remote_code=False):
         print(f"Loading {path} (config={config}, split={split})...")
         try:
             if config:
-                ds = load_dataset(path, config, split=split, streaming=False, token=token, trust_remote_code=True)
+                ds = load_dataset(path, config, split=split, streaming=False, token=token, trust_remote_code=trust_remote_code)
             else:
-                ds = load_dataset(path, split=split, streaming=False, token=token, trust_remote_code=True)
+                ds = load_dataset(path, split=split, streaming=False, token=token, trust_remote_code=trust_remote_code)
             
             ds = ds.cast_column("audio", Audio(decode=False))
             count = 0
@@ -181,13 +181,13 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
     # 5. Svarah (loads 'test' split because 'train' split doesn't exist)
     load_and_filter("ai4bharat/Svarah", "test", text_keys=["transcription"], source_label="svarah")
 
-    # 6. OpenSLR 104
-    load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104")
+    # 6. OpenSLR 104 (needs trust_remote_code=True for its loading script)
+    load_and_filter("openslr", "train", config="104", text_keys=["transcription"], source_label="openslr_104", trust_remote_code=True)
 
     # 7. Eka Care (Medical ASR)
     print("Loading Eka Care Medical ASR...")
     try:
-        eka_ds = load_dataset("eka-care/medical-asr", split="train", streaming=False, token=token, trust_remote_code=True)
+        eka_ds = load_dataset("eka-care/medical-asr", split="train", streaming=False, token=token)
         eka_ds = eka_ds.cast_column("audio", Audio(decode=False))
         count = 0
         for sample in eka_ds:
@@ -211,7 +211,7 @@ def load_mixed_dataset(processor, g2p_manager, token=None):
 
     try:
         # Load NPTEL in streaming mode to avoid downloading the 100GB archive locally
-        nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=True, token=token, trust_remote_code=True)
+        nptel_ds = load_dataset("skbose/indian-english-nptel-v0", split="train", streaming=True, token=token)
         nptel_ds = nptel_ds.cast_column("audio", Audio(decode=False))
         nptel_iter = iter(nptel_ds)
         loaded = 0
