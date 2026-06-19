@@ -25,13 +25,40 @@ import json
 # Import the custom model and utilities from the local directory
 from src.models.phoneme_embedder import Wav2Vec2PhonemeEmbedder
 
-# Data Collator for CTC
+# Data Collator for CTC (with on-the-fly truncation to prevent OOM)
+MAX_AUDIO_SAMPLES = 320000   # 20 seconds at 16kHz
+MAX_LABEL_LEN = 150
+WAV2VEC2_DOWNSAMPLE = 320    # Wav2Vec2 feature extractor downsampling factor
+
 @dataclass
 class DataCollatorCTCWithPadding:
     processor: Wav2Vec2Processor
     padding: Union[bool, str] = True
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        # On-the-fly truncation: cap audio at 20s, proportionally adjust labels
+        for feat in features:
+            audio = feat["input_values"]
+            labels = feat["labels"]
+            audio_len = len(audio)
+            label_len = len(labels)
+
+            if audio_len > MAX_AUDIO_SAMPLES:
+                ratio = MAX_AUDIO_SAMPLES / audio_len
+                feat["input_values"] = audio[:MAX_AUDIO_SAMPLES]
+                audio_len = MAX_AUDIO_SAMPLES
+                label_len = max(1, int(label_len * ratio))
+                feat["labels"] = labels[:label_len]
+                labels = feat["labels"]
+
+            if label_len > MAX_LABEL_LEN:
+                feat["labels"] = labels[:MAX_LABEL_LEN]
+                label_len = MAX_LABEL_LEN
+
+            num_frames = audio_len // WAV2VEC2_DOWNSAMPLE
+            if num_frames < label_len:
+                feat["labels"] = labels[:num_frames]
+
         # Split inputs and labels since they have to be of different lengths and need
         # different padding methods
         input_features = [{"input_values": feature["input_values"]} for feature in features]
@@ -335,57 +362,8 @@ def main():
     # 3. Load processed dataset from local disk
     print(f"Loading preprocessed dataset from '{args.offline_dataset_dir}'...")
     dataset_dict = load_from_disk(args.offline_dataset_dir)
-    
-    # Smart truncation: Instead of discarding long audio, cap at 20s and
-    # proportionally truncate labels. CTC is alignment-free so the model
-    # learns from whatever audio is present.
-    MAX_AUDIO_SAMPLES = 320000   # 20 seconds at 16kHz
-    MAX_LABEL_LEN = 150
-    WAV2VEC2_DOWNSAMPLE = 320    # Wav2Vec2 feature extractor downsampling factor
 
-    def truncate_long_sequences(example):
-        audio = example["input_values"]
-        labels = example["labels"]
-        audio_len = len(audio)
-        label_len = len(labels)
 
-        truncated = False
-
-        # 1. Cap audio at 20 seconds
-        if audio_len > MAX_AUDIO_SAMPLES:
-            ratio = MAX_AUDIO_SAMPLES / audio_len
-            audio = audio[:MAX_AUDIO_SAMPLES]
-            audio_len = MAX_AUDIO_SAMPLES
-            # Proportionally truncate labels to match the shorter audio
-            new_label_len = max(1, int(label_len * ratio))
-            labels = labels[:new_label_len]
-            label_len = new_label_len
-            truncated = True
-
-        # 2. Cap labels at 150 tokens
-        if label_len > MAX_LABEL_LEN:
-            labels = labels[:MAX_LABEL_LEN]
-            label_len = MAX_LABEL_LEN
-            truncated = True
-
-        # 3. CTC safety: feature frames must be >= label length
-        # Wav2Vec2 produces ceil(audio_len / 320) frames
-        num_frames = audio_len // WAV2VEC2_DOWNSAMPLE
-        if num_frames < label_len:
-            # Trim labels to fit available frames
-            labels = labels[:num_frames]
-            truncated = True
-
-        example["input_values"] = audio
-        example["labels"] = labels
-        return example
-
-    print("Truncating long audio (>20s) and proportionally adjusting labels (preserving data)...")
-    if isinstance(dataset_dict, dict) or hasattr(dataset_dict, "keys"):
-        for k in list(dataset_dict.keys()):
-            dataset_dict[k] = dataset_dict[k].map(truncate_long_sequences, desc=f"Truncating {k} for OOM prevention")
-    else:
-        dataset_dict = dataset_dict.map(truncate_long_sequences, desc="Truncating dataset for OOM prevention")
     
     # Check if this is a DatasetDict containing train/test splits
     if isinstance(dataset_dict, dict) or hasattr(dataset_dict, "keys"):
