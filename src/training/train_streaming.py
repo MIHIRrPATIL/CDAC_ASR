@@ -337,12 +337,24 @@ class PrefetchDataset(torch.utils.data.IterableDataset):
 
         labels = processor.tokenizer.convert_tokens_to_ids(phonemes)
 
-        # 6. Max target length and audio length filter to prevent GPU OOM
-        if len(clean_audio) > 320000:
-            raise ValueError(f"Audio duration {len(clean_audio)/16000:.1f}s exceeds maximum limit of 20 seconds.")
+        # 6. Smart truncation: cap audio at 20s and proportionally adjust labels
+        MAX_AUDIO_SAMPLES = 320000   # 20 seconds at 16kHz
+        MAX_LABEL_LEN = 150
+        WAV2VEC2_DOWNSAMPLE = 320
 
-        if len(labels) > 150:
-            raise ValueError(f"Phoneme sequence length {len(labels)} exceeds maximum target limit of 150.")
+        if len(input_values) > MAX_AUDIO_SAMPLES:
+            ratio = MAX_AUDIO_SAMPLES / len(input_values)
+            input_values = input_values[:MAX_AUDIO_SAMPLES]
+            new_label_len = max(1, int(len(labels) * ratio))
+            labels = labels[:new_label_len]
+
+        if len(labels) > MAX_LABEL_LEN:
+            labels = labels[:MAX_LABEL_LEN]
+
+        # CTC safety: feature frames must be >= label length
+        num_frames = len(input_values) // WAV2VEC2_DOWNSAMPLE
+        if num_frames < len(labels):
+            labels = labels[:num_frames]
 
         return {"input_values": input_values, "labels": labels}
 

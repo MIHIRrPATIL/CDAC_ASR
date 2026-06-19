@@ -336,25 +336,56 @@ def main():
     print(f"Loading preprocessed dataset from '{args.offline_dataset_dir}'...")
     dataset_dict = load_from_disk(args.offline_dataset_dir)
     
-    # Filter out extremely long audio/labels to prevent GPU OOM
-    # 20 seconds = 320,000 samples at 16kHz
-    def filter_oom_sequences(example):
-        return len(example["input_values"]) <= 320000 and len(example["labels"]) <= 150
+    # Smart truncation: Instead of discarding long audio, cap at 20s and
+    # proportionally truncate labels. CTC is alignment-free so the model
+    # learns from whatever audio is present.
+    MAX_AUDIO_SAMPLES = 320000   # 20 seconds at 16kHz
+    MAX_LABEL_LEN = 150
+    WAV2VEC2_DOWNSAMPLE = 320    # Wav2Vec2 feature extractor downsampling factor
 
-    print("Filtering out extremely long audio (>20s) or labels (>150 tokens) to prevent CUDA OOM...")
+    def truncate_long_sequences(example):
+        audio = example["input_values"]
+        labels = example["labels"]
+        audio_len = len(audio)
+        label_len = len(labels)
+
+        truncated = False
+
+        # 1. Cap audio at 20 seconds
+        if audio_len > MAX_AUDIO_SAMPLES:
+            ratio = MAX_AUDIO_SAMPLES / audio_len
+            audio = audio[:MAX_AUDIO_SAMPLES]
+            audio_len = MAX_AUDIO_SAMPLES
+            # Proportionally truncate labels to match the shorter audio
+            new_label_len = max(1, int(label_len * ratio))
+            labels = labels[:new_label_len]
+            label_len = new_label_len
+            truncated = True
+
+        # 2. Cap labels at 150 tokens
+        if label_len > MAX_LABEL_LEN:
+            labels = labels[:MAX_LABEL_LEN]
+            label_len = MAX_LABEL_LEN
+            truncated = True
+
+        # 3. CTC safety: feature frames must be >= label length
+        # Wav2Vec2 produces ceil(audio_len / 320) frames
+        num_frames = audio_len // WAV2VEC2_DOWNSAMPLE
+        if num_frames < label_len:
+            # Trim labels to fit available frames
+            labels = labels[:num_frames]
+            truncated = True
+
+        example["input_values"] = audio
+        example["labels"] = labels
+        return example
+
+    print("Truncating long audio (>20s) and proportionally adjusting labels (preserving data)...")
     if isinstance(dataset_dict, dict) or hasattr(dataset_dict, "keys"):
         for k in list(dataset_dict.keys()):
-            orig_len = len(dataset_dict[k])
-            dataset_dict[k] = dataset_dict[k].filter(filter_oom_sequences, desc=f"Filtering {k} for OOM prevention")
-            new_len = len(dataset_dict[k])
-            if new_len < orig_len:
-                print(f"  - Removed {orig_len - new_len} long samples from split '{k}'.")
+            dataset_dict[k] = dataset_dict[k].map(truncate_long_sequences, desc=f"Truncating {k} for OOM prevention")
     else:
-        orig_len = len(dataset_dict)
-        dataset_dict = dataset_dict.filter(filter_oom_sequences, desc="Filtering dataset for OOM prevention")
-        new_len = len(dataset_dict)
-        if new_len < orig_len:
-            print(f"  - Removed {orig_len - new_len} long samples from dataset.")
+        dataset_dict = dataset_dict.map(truncate_long_sequences, desc="Truncating dataset for OOM prevention")
     
     # Check if this is a DatasetDict containing train/test splits
     if isinstance(dataset_dict, dict) or hasattr(dataset_dict, "keys"):
