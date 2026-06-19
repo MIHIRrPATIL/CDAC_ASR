@@ -129,7 +129,7 @@ class PronunciationScorer:
         }
 
     def _extract_pitch_contour(self, waveform, sr, phoneme_times):
-        """Extract pitch using librosa's pyin algorithm"""
+        """Extract pitch using a robust autocorrelation algorithm (avoids Numba/LLVM segfaults)"""
         pitch_contours = []
         try:
             # Ensure waveform is 1D numpy array
@@ -137,19 +137,41 @@ class PronunciationScorer:
                 if waveform.ndim > 1:
                     waveform = waveform.squeeze()
             
-            # Extract pitch using librosa's pyin
-            f0, voiced_flag, voiced_probs = librosa.pyin(
-                waveform,
-                fmin=librosa.note_to_hz('C2'),
-                fmax=librosa.note_to_hz('C7'),
-                sr=sr
-            )
+            # Autocorrelation-based pitch tracking (pure NumPy)
+            hop_length = 512
+            min_lag = int(sr / 500)
+            max_lag = int(sr / 50)
+            num_samples = len(waveform)
+            f0 = []
             
-            # Handle NaN values
-            f0 = np.nan_to_num(f0, nan=0.0)
+            for start_sample in range(0, num_samples - hop_length, hop_length):
+                frame = waveform[start_sample:start_sample + hop_length]
+                # Zero-mean the frame
+                frame = frame - np.mean(frame)
+                if np.std(frame) < 1e-4:
+                    f0.append(0.0)
+                    continue
+                    
+                corr = np.correlate(frame, frame, mode='full')
+                corr = corr[len(corr)//2:]
+                
+                if len(corr) > max_lag:
+                    search_region = corr[min_lag:max_lag]
+                    if len(search_region) > 0:
+                        peak_lag = np.argmax(search_region) + min_lag
+                        pitch = sr / peak_lag
+                        if corr[peak_lag] > 0.3 * corr[0]:
+                            f0.append(pitch)
+                        else:
+                            f0.append(0.0)
+                    else:
+                        f0.append(0.0)
+                else:
+                    f0.append(0.0)
+                    
+            f0 = np.array(f0)
             
             # Extract per-phoneme segments
-            hop_length = 512  # librosa default
             for start, end in phoneme_times:
                 start_idx = int(start * sr / hop_length)
                 end_idx = int(end * sr / hop_length)
@@ -314,22 +336,19 @@ class PronunciationScorer:
         B, T, C = log_probs.shape
         L = targets.shape[1]
         
-        print(f"[DEBUG ctc_forced_align] Shape: T={T}, L={L}, blank_id={blank_id}", flush=True)
-        
         # Move inputs to CPU to avoid CUDA kernel/driver binary compatibility segfaults
         # and multi-GPU device mapping issues in torchaudio's C++ extension.
         log_probs_cpu = log_probs.cpu()
         targets_cpu = targets.cpu()
         
         targets_list = targets_cpu[0].numpy().tolist()
-        print(f"[DEBUG ctc_forced_align] Target list: {targets_list}", flush=True)
         
         # Validate constraints to prevent C++ out-of-bounds/assertion crashes
         # 1. Target sequence cannot be empty
         # 2. Input frames must be >= target length
         # 3. Target sequence must not contain the blank/pad token
         if L == 0 or T < L or blank_id in targets_list:
-            print(f"Warning: CTC alignment constraints violated (T={T}, L={L}, blank_in_target={blank_id in targets_list}). Falling back to linear alignment.", flush=True)
+            print(f"Warning: CTC alignment constraints violated (T={T}, L={L}, blank_in_target={blank_id in targets_list}). Falling back to linear alignment.")
             intervals = []
             step = T / max(L, 1)
             for idx in range(L):
@@ -344,8 +363,6 @@ class PronunciationScorer:
         # Log softmax along vocab dimension
         log_probs_norm = torch.log_softmax(log_probs_cpu, dim=-1)
         
-        print(f"[DEBUG ctc_forced_align] Calling F.forced_align on CPU. log_probs_norm shape: {log_probs_norm.shape}", flush=True)
-        
         try:
             # torchaudio forced_align on CPU
             alignments, scores = F.forced_align(
@@ -356,7 +373,6 @@ class PronunciationScorer:
                 blank=blank_id
             )
             
-            print("[DEBUG ctc_forced_align] F.forced_align completed successfully", flush=True)
             path = alignments[0].numpy().tolist()
             
             # Extract intervals using state machine
@@ -390,7 +406,7 @@ class PronunciationScorer:
             if start_frame is not None:
                 intervals.append((start_frame, end_frame))
         except Exception as e:
-            print(f"Warning: torchaudio forced_align failed: {e}. Falling back to linear alignment.", flush=True)
+            print(f"Warning: torchaudio forced_align failed: {e}. Falling back to linear alignment.")
             intervals = []
             step = T / max(L, 1)
             for idx in range(L):
