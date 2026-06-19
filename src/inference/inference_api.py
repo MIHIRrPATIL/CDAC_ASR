@@ -69,6 +69,7 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
     if _model is None:
         raise RuntimeError("Pipeline not initialized. Call init_pipeline first.")
         
+    print("[DEBUG run_inference] Processing target phonemes/word", flush=True)
     ref_phonemes_raw = []
     if target_word:
         # Use convert_sentence — handles multi-word input, dictionary lookup + neural fallback
@@ -80,6 +81,7 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
     else:
         raise ValueError("Either target_word or target_phonemes must be provided.")
         
+    print("[DEBUG run_inference] Reading audio", flush=True)
     sr = 16000
     speech, out_sr = sf.read(audio_path)
     if len(speech.shape) > 1:
@@ -89,11 +91,14 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
         speech = torchaudio.functional.resample(torch.tensor(speech), out_sr, 16000).numpy()
         
     if preprocess:
+        print("[DEBUG run_inference] Preprocessing audio", flush=True)
         speech = _audio_prep.preprocess(speech)
     
+    print("[DEBUG run_inference] Running processor", flush=True)
     inputs = _processor(speech, sampling_rate=sr, return_tensors="pt", padding=True)
     input_values = inputs.input_values.to(device)
     
+    print(f"[DEBUG run_inference] Running model on device: {device}. input_values shape: {input_values.shape}", flush=True)
     with torch.no_grad():
         outputs = _model(input_values)
         if isinstance(outputs, dict):
@@ -101,6 +106,7 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
         else:
             logits = outputs.logits
             
+    print(f"[DEBUG run_inference] Model prediction completed. Logits shape: {logits.shape}", flush=True)
     pred_ids = torch.argmax(logits, dim=-1)
     pred_phonemes_raw = [_id2phoneme.get(int(i), '<unk>') for i in pred_ids[0]]
     valid_pred_phonemes = [p for p in pred_phonemes_raw if p not in ['<pad>', '<unk>']]
@@ -110,12 +116,15 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
     targets = torch.tensor([target_ids], dtype=torch.long, device=device)
     blank_id = _processor.tokenizer.pad_token_id or 0
     
+    print(f"[DEBUG run_inference] Preparing for CTC forced align. target_ids length: {len(target_ids)}", flush=True)
     # Run CTC forced alignment
     intervals = _scorer.ctc_forced_align(logits, targets, blank_id=blank_id)
     
+    print("[DEBUG run_inference] CTC forced align completed. Computing GoP", flush=True)
     # Run GoP Scorer
     gop_details = _scorer.compute_gop(logits, targets, intervals, ref_phonemes_raw)
     
+    print("[DEBUG run_inference] GoP computed. Computing final scores", flush=True)
     duration = len(speech) / sr
     pred_times = [(i*0.02, (i+1)*0.02) for i in range(len(valid_pred_phonemes))]
     ref_times = [(i*duration/len(ref_phonemes_raw), (i+1)*duration/len(ref_phonemes_raw)) 

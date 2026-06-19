@@ -314,19 +314,22 @@ class PronunciationScorer:
         B, T, C = log_probs.shape
         L = targets.shape[1]
         
+        print(f"[DEBUG ctc_forced_align] Shape: T={T}, L={L}, blank_id={blank_id}", flush=True)
+        
         # Move inputs to CPU to avoid CUDA kernel/driver binary compatibility segfaults
         # and multi-GPU device mapping issues in torchaudio's C++ extension.
         log_probs_cpu = log_probs.cpu()
         targets_cpu = targets.cpu()
         
         targets_list = targets_cpu[0].numpy().tolist()
+        print(f"[DEBUG ctc_forced_align] Target list: {targets_list}", flush=True)
         
         # Validate constraints to prevent C++ out-of-bounds/assertion crashes
         # 1. Target sequence cannot be empty
         # 2. Input frames must be >= target length
         # 3. Target sequence must not contain the blank/pad token
         if L == 0 or T < L or blank_id in targets_list:
-            print(f"Warning: CTC alignment constraints violated (T={T}, L={L}, blank_in_target={blank_id in targets_list}). Falling back to linear alignment.")
+            print(f"Warning: CTC alignment constraints violated (T={T}, L={L}, blank_in_target={blank_id in targets_list}). Falling back to linear alignment.", flush=True)
             intervals = []
             step = T / max(L, 1)
             for idx in range(L):
@@ -341,6 +344,8 @@ class PronunciationScorer:
         # Log softmax along vocab dimension
         log_probs_norm = torch.log_softmax(log_probs_cpu, dim=-1)
         
+        print(f"[DEBUG ctc_forced_align] Calling F.forced_align on CPU. log_probs_norm shape: {log_probs_norm.shape}", flush=True)
+        
         try:
             # torchaudio forced_align on CPU
             alignments, scores = F.forced_align(
@@ -351,6 +356,7 @@ class PronunciationScorer:
                 blank=blank_id
             )
             
+            print("[DEBUG ctc_forced_align] F.forced_align completed successfully", flush=True)
             path = alignments[0].numpy().tolist()
             
             # Extract intervals using state machine
@@ -384,7 +390,7 @@ class PronunciationScorer:
             if start_frame is not None:
                 intervals.append((start_frame, end_frame))
         except Exception as e:
-            print(f"Warning: torchaudio forced_align failed: {e}. Falling back to linear alignment.")
+            print(f"Warning: torchaudio forced_align failed: {e}. Falling back to linear alignment.", flush=True)
             intervals = []
             step = T / max(L, 1)
             for idx in range(L):
