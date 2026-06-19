@@ -15,14 +15,23 @@ from transformers import Wav2Vec2Processor
 from src.models.phoneme_embedder import Wav2Vec2PhonemeEmbedder
 
 def calculate_per(reference, hypothesis):
-    """Computes Phoneme Error Rate (PER) using Levenshtein distance."""
+    """Memory-efficient sequence-level Levenshtein distance for PER."""
     nr = len(reference)
     nh = len(hypothesis)
     if nr == 0: return nh
     if nh == 0: return nr
     
-    dist = Levenshtein.distance(reference, hypothesis)
-    return dist / max(nr, nh, 1)
+    row = np.arange(nh + 1)
+    for i in range(1, nr + 1):
+        prev_row = row.copy()
+        row[0] = i
+        for j in range(1, nh + 1):
+            cost = 0 if reference[i-1] == hypothesis[j-1] else 1
+            row[j] = min(prev_row[j] + 1,      # deletion
+                         row[j-1] + 1,          # insertion
+                         prev_row[j-1] + cost) # substitution
+    
+    return row[nh] / nr
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Phoneme Embedder on local preprocessed test split")

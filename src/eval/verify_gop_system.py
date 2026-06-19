@@ -45,21 +45,57 @@ def main():
     print(f"Initializing pipeline with model: {model_dir}...")
     init_pipeline(model_dir)
 
-    # 2. Select a sample WAV file and its reference transcript word
+    # 2. Select a sample WAV file and its target phonemes
     wav_path = "sample_dataset/nptel-pure/wav/0000003b8fd9bc22877135b42b04c49d4860312b001be688723ecc5d.wav"
-    target_word = "particular"  # The word we want to target in the transcript
+    target_word = "particular"
+    target_phonemes = None
+
+    temp_created_wav = False
+    temp_wav_path = None
 
     if not os.path.exists(wav_path):
-        print(f"❌ Error: Test wav file '{wav_path}' not found.")
-        sys.exit(1)
+        print(f"ℹ️ Default wav file '{wav_path}' not found. Checking for local processed dataset fallback...")
+        dataset_dir = "/data/local_nptel_processed"
+        if os.path.exists(dataset_dir):
+            from datasets import load_from_disk
+            print(f"Loading fallback sample from processed dataset: {dataset_dir}...")
+            dataset_dict = load_from_disk(dataset_dir)
+            test_split = dataset_dict.get("test", dataset_dict.get("train", dataset_dict))
+            sample = test_split[0]
+            
+            # Write raw audio to temporary wav file
+            import tempfile
+            temp_fd, temp_wav_path = tempfile.mkstemp(suffix=".wav")
+            os.close(temp_fd)
+            sf.write(temp_wav_path, sample["input_values"], 16000)
+            wav_path = temp_wav_path
+            temp_created_wav = True
+            
+            # Decode the target phoneme IDs into a phoneme string
+            vocab = _processor.tokenizer.get_vocab()
+            id2phoneme = {v: k for k, v in vocab.items()}
+            pad_id = _processor.tokenizer.pad_token_id or 0
+            clean_ref = [id2phoneme.get(rid, "<unk>") for rid in sample["labels"] if rid >= 0 and rid != pad_id]
+            target_phonemes = " ".join(clean_ref)
+            
+            print(f"✨ Created temp wav from dataset sample at: '{wav_path}'")
+            print(f"Target Phonemes: {target_phonemes}")
+        else:
+            print(f"❌ Error: Neither sample_dataset nor local dataset '{dataset_dir}' found.")
+            sys.exit(1)
 
-    print(f"\n1. Running baseline inference on uncorrupted file: '{wav_path}'...")
-    print(f"Target word for scoring: '{target_word}'")
-    baseline_results = run_inference(wav_path, target_word=target_word)
+    print(f"\n1. Running baseline inference on: '{wav_path}'...")
+    if target_phonemes:
+        baseline_results = run_inference(wav_path, target_phonemes=target_phonemes)
+    else:
+        print(f"Target word for scoring: '{target_word}'")
+        baseline_results = run_inference(wav_path, target_word=target_word)
     
     gop_details = baseline_results.get("gop_details", [])
     if not gop_details:
         print("❌ Error: No GoP details returned in baseline results.")
+        if temp_created_wav and os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
         sys.exit(1)
 
     print("\nBaseline GoP Scores:")
@@ -67,7 +103,6 @@ def main():
         print(f"  Phoneme [{idx}]: {detail['phoneme']:<5} | Time: {detail['start_ms']:.1f}ms - {detail['end_ms']:.1f}ms | GoP: {detail['gop_prob']:.2%} | Correct: {detail['is_correct']}")
 
     # 3. Select a middle phoneme to corrupt
-    # Let's corrupt a phoneme that is well within the word, e.g., index 3 (usually part of the middle syllables)
     corrupt_idx = min(3, len(gop_details) - 1)
     target_phoneme = gop_details[corrupt_idx]["phoneme"]
     print(f"\nSelecting phoneme [{corrupt_idx}] '{target_phoneme}' for segment corruption.")
@@ -77,8 +112,6 @@ def main():
     if len(speech.shape) > 1:
         speech = speech.mean(axis=1)
 
-    # Reconstruct frame boundaries from millisecond timings
-    # 20ms stride = 320 samples per frame at 16kHz
     frame_stride_samples = 320
     start_frame = int(gop_details[corrupt_idx]["start_ms"] / 20.0)
     end_frame = int(gop_details[corrupt_idx]["end_ms"] / 20.0) - 1
@@ -90,23 +123,28 @@ def main():
     corrupted_speech = corrupt_segment(speech, start_sample, end_sample, noise_type="silence")
 
     # Save the corrupted audio to a temporary file
-    temp_dir = "src/g2p"  # save within the research directory structure
+    temp_dir = "/tmp" if temp_created_wav else "src/g2p"
     os.makedirs(temp_dir, exist_ok=True)
-    temp_wav_path = os.path.join(temp_dir, "temp_corrupted_test.wav")
-    sf.write(temp_wav_path, corrupted_speech, sr)
-    print(f"Preserved corrupted test audio to: '{temp_wav_path}'")
+    temp_corrupted_wav_path = os.path.join(temp_dir, "temp_corrupted_test.wav")
+    sf.write(temp_corrupted_wav_path, corrupted_speech, sr)
+    print(f"Preserved corrupted test audio to: '{temp_corrupted_wav_path}'")
 
     # 5. Run inference on corrupted audio
-    print(f"\n2. Running inference on corrupted file: '{temp_wav_path}'...")
-    corrupted_results = run_inference(temp_wav_path, target_word=target_word)
+    print(f"\n2. Running inference on corrupted file: '{temp_corrupted_wav_path}'...")
+    if target_phonemes:
+        corrupted_results = run_inference(temp_corrupted_wav_path, target_phonemes=target_phonemes)
+    else:
+        corrupted_results = run_inference(temp_corrupted_wav_path, target_word=target_word)
     corrupted_gop = corrupted_results.get("gop_details", [])
 
     print("\nCorrupted GoP Scores:")
     for idx, detail in enumerate(corrupted_gop):
         print(f"  Phoneme [{idx}]: {detail['phoneme']:<5} | Time: {detail['start_ms']:.1f}ms - {detail['end_ms']:.1f}ms | GoP: {detail['gop_prob']:.2%} | Correct: {detail['is_correct']}")
 
-    # Clean up temp file
-    if os.path.exists(temp_wav_path):
+    # Clean up temp files
+    if os.path.exists(temp_corrupted_wav_path):
+        os.remove(temp_corrupted_wav_path)
+    if temp_created_wav and os.path.exists(temp_wav_path):
         os.remove(temp_wav_path)
 
     # 6. Assertions
