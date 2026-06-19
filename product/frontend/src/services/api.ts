@@ -1,5 +1,13 @@
 import axios from "axios";
 
+export interface GopDetail {
+  phoneme: string;
+  start_ms: number;
+  end_ms: number;
+  gop_prob: number;
+  is_correct: boolean;
+}
+
 export interface PronunciationResponse {
   scores: {
     phoneme: number;
@@ -13,12 +21,13 @@ export interface PronunciationResponse {
         wrong_stress: number;
       };
     };
+    gop_details?: GopDetail[];
   };
   analysis: {
     error_stats: { sub: number; ins: number; del: number };
     aligned_pairs: [string, string][];
   };
-  feedback: string | null;
+  feedback: string[] | null;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";

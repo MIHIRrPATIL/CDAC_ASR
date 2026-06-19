@@ -2,14 +2,20 @@ import uvicorn
 import os
 import sys
 
-# 1. Automatically handle the Python Path (Find project root from within backend/)
-root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(root_dir)
+# 1. Automatically handle the Python Path (Find project root and product root)
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+product_dir = os.path.dirname(backend_dir)
+project_root = os.path.dirname(product_dir)
 
-# 2. Always resolve model path relative to the project root
-model_path = os.environ.get("ASR_MODEL_DIR", "models/trained_models/20k_steps")
+sys.path.append(product_dir)
+sys.path.append(project_root)
+
+# 2. Always resolve model path relative to the project root if it exists locally
+model_path = os.environ.get("ASR_MODEL_DIR", "MihirRPatil/nptel-asr-phoneme-v3")
 if not os.path.isabs(model_path):
-    model_path = os.path.join(root_dir, model_path)
+    local_path = os.path.join(project_root, model_path)
+    if os.path.exists(local_path):
+        model_path = local_path
 os.environ["ASR_MODEL_DIR"] = model_path
 
 # 3. Import the FastAPI app
@@ -35,7 +41,7 @@ except ImportError:
 
 if __name__ == "__main__":
     print(f"--- CDAC ASR Backend (Internal Entry Point) ---")
-    print(f"Project Root: {root_dir}")
+    print(f"Project Root: {project_root}")
     print(f"Loading Model from: {os.environ['ASR_MODEL_DIR']}")
     print(f"Server starting at http://localhost:8000")
     

@@ -85,8 +85,73 @@ function ScoreCards({ scores }: { scores: PronunciationResponse["scores"] }) {
 }
 
 /* ───── Phoneme Alignment ───── */
-function PhonemeAlignment({ pairs }: { pairs: [string, string][] }) {
+const IPA_GUIDE: Record<string, { desc: string; example: string }> = {
+  // Consonants
+  "p": { desc: "Voiceless bilabial plosive", example: "p in 'pen'" },
+  "b": { desc: "Voiced bilabial plosive", example: "b in 'bed'" },
+  "ʈ": { desc: "Voiceless retroflex plosive (tongue curled back)", example: "t in 'tea' (Indian English)" },
+  "ɖ": { desc: "Voiced retroflex plosive (tongue curled back)", example: "d in 'day' (Indian English)" },
+  "k": { desc: "Voiceless velar plosive", example: "k in 'key'" },
+  "ɡ": { desc: "Voiced velar plosive", example: "g in 'get'" },
+  "tʃ": { desc: "Voiceless postalveolar affricate", example: "ch in 'chair'" },
+  "dʒ": { desc: "Voiced postalveolar affricate", example: "j in 'job'" },
+  "f": { desc: "Voiceless labiodental fricative", example: "f in 'fall'" },
+  "ʋ": { desc: "Voiced labiodental approximant", example: "v in 'voice' / w in 'wet'" },
+  "t̪": { desc: "Voiceless dental plosive / fricative", example: "th in 'thin'" },
+  "d̪": { desc: "Voiced dental plosive / fricative", example: "th in 'then'" },
+  "s": { desc: "Voiceless alveolar fricative", example: "s in 'sun'" },
+  "z": { desc: "Voiced alveolar fricative", example: "z in 'zero'" },
+  "ʃ": { desc: "Voiceless postalveolar fricative", example: "sh in 'she'" },
+  "ʒ": { desc: "Voiced postalveolar fricative", example: "s in 'measure'" },
+  "ç": { desc: "Voiceless palatal fricative", example: "h in 'huge'" },
+  "h": { desc: "Voiceless glottal fricative", example: "h in 'hot'" },
+  "m": { desc: "Bilabial nasal", example: "m in 'man'" },
+  "n": { desc: "Alveolar nasal", example: "n in 'no'" },
+  "ɲ": { desc: "Palatal nasal", example: "ny in 'canyon'" },
+  "ng": { desc: "Velar nasal", example: "ng in 'sing'" },
+  "ŋ": { desc: "Velar nasal", example: "ng in 'sing'" },
+  "l": { desc: "Alveolar lateral approximant", example: "l in 'leg'" },
+  "ɹ": { desc: "Alveolar approximant", example: "r in 'red'" },
+  "j": { desc: "Palatal approximant", example: "y in 'yes'" },
+  
+  // Palatalized consonants
+  "ʈʲ": { desc: "Palatalized voiceless retroflex plosive", example: "t with a y-sound" },
+  "ɖʲ": { desc: "Palatalized voiced retroflex plosive", example: "d with a y-sound" },
+  "fʲ": { desc: "Palatalized voiceless labiodental fricative", example: "f with a y-sound" },
+  "mʲ": { desc: "Palatalized bilabial nasal", example: "m with a y-sound" },
+  
+  // Vowels
+  "ɪ": { desc: "Near-close near-front unrounded vowel", example: "i in 'kit'" },
+  "iː": { desc: "Close front unrounded vowel (long)", example: "ee in 'fleece'" },
+  "ɛ": { desc: "Open-mid front unrounded vowel", example: "e in 'dress'" },
+  "a": { desc: "Open front unrounded vowel", example: "a in 'trap'" },
+  "ɑ": { desc: "Open back unrounded vowel", example: "a in 'father'" },
+  "ɒ": { desc: "Open back rounded vowel", example: "o in 'lot'" },
+  "ə": { desc: "Mid central vowel (schwa)", example: "a in 'about'" },
+  "ɜ": { desc: "Open-mid central vowel", example: "ur in 'nurse'" },
+  "ɜː": { desc: "Open-mid central vowel (long)", example: "ur in 'nurse'" },
+  "eː": { desc: "Close-mid front unrounded vowel (long)", example: "ay in 'face'" },
+  "oː": { desc: "Close-mid back rounded vowel (long)", example: "o in 'goat'" },
+  "ʊ": { desc: "Near-close near-back rounded vowel", example: "u in 'foot'" },
+  "ʉ": { desc: "Close central rounded vowel", example: "oo in 'boot'" },
+  "ʉː": { desc: "Close central rounded vowel (long)", example: "oo in 'boot'" },
+  
+  // Diphthongs
+  "aw": { desc: "Diphthong", example: "ou in 'out'" },
+  "aj": { desc: "Diphthong", example: "i in 'bite'" },
+  "ɔj": { desc: "Diphthong", example: "oy in 'boy'" }
+};
+
+function PhonemeAlignment({
+  pairs,
+  gopDetails,
+}: {
+  pairs: [string, string][];
+  gopDetails?: PronunciationResponse["scores"]["gop_details"];
+}) {
   if (!pairs || pairs.length === 0) return null;
+
+  let expectedIdx = 0;
 
   return (
     <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm mb-8">
@@ -97,53 +162,129 @@ function PhonemeAlignment({ pairs }: { pairs: [string, string][] }) {
         <h2 className="text-xl font-bold text-foreground">Phoneme Alignment</h2>
       </div>
 
-      <div className="flex flex-wrap gap-2 overflow-x-auto p-2 pb-4">
+      <div className="flex flex-wrap gap-3 overflow-x-auto p-2 pb-4">
         {pairs.map((pair, idx) => {
           const [spoken, expected] = pair;
           const isMatch = spoken === expected;
           const isDeletion = spoken === "-";
-          const isSubstitution = !isMatch && !isDeletion && expected !== "-";
+          const isInsertion = expected === "-";
+          const isSubstitution = !isMatch && !isDeletion && !isInsertion;
 
           let bgClass = "bg-emerald-500/10 border-emerald-500/20";
-          let textColor = "text-emerald-400";
+          let textColor = "text-emerald-400 font-bold border-emerald-500/30";
 
           if (isDeletion) {
             bgClass = "bg-orange-500/10 border-orange-500/20";
-            textColor = "text-orange-400";
+            textColor = "text-orange-400 border-orange-500/30";
           } else if (isSubstitution) {
-            bgClass = "bg-red-500/10 border-red-500/20";
-            textColor = "text-red-400";
+            bgClass = "bg-rose-500/10 border-rose-500/20";
+            textColor = "text-rose-400 border-rose-500/30";
+          } else if (isInsertion) {
+            bgClass = "bg-violet-500/10 border-violet-500/20";
+            textColor = "text-violet-400 border-violet-500/30";
           }
+
+          let gopScore: number | undefined = undefined;
+          if (!isInsertion && gopDetails && expectedIdx < gopDetails.length) {
+            gopScore = Math.round(gopDetails[expectedIdx].gop_prob * 100);
+          }
+
+          if (!isInsertion) {
+            expectedIdx++;
+          }
+
+          // IPA Tooltip guide
+          const guide = isInsertion 
+            ? null 
+            : IPA_GUIDE[expected] || IPA_GUIDE[expected.replace(/ː/g, "")] || null;
 
           return (
             <div
               key={idx}
-              className={`flex flex-col items-center min-w-[40px] rounded-lg border p-2 backdrop-blur-md ${bgClass} ${textColor}`}
+              className={`relative group cursor-help flex flex-col items-center min-w-[50px] rounded-xl border p-3 backdrop-blur-md transition-all duration-200 hover:scale-105 ${bgClass} ${textColor}`}
             >
+              {/* IPA Tooltip */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-slate-900/95 dark:bg-card/95 border border-border/80 text-foreground rounded-xl shadow-xl backdrop-blur-md z-50 pointer-events-none opacity-0 group-hover:opacity-100 group-hover:scale-100 scale-95 transition-all duration-200 origin-bottom flex flex-col gap-1 text-left">
+                {isInsertion ? (
+                  <>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-bold text-xs text-violet-400">Extra Sound</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-normal">
+                      You added an extra sound <span className="font-bold text-foreground">"{spoken}"</span> here.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-bold text-sm text-indigo-400">/{expected}/</span>
+                      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider bg-indigo-500/10 px-1.5 py-0.5 rounded-sm">IPA Guide</span>
+                    </div>
+                    {guide ? (
+                      <>
+                        <p className="text-[11px] text-foreground leading-snug">{guide.desc}</p>
+                        <div className="mt-1 pt-1 border-t border-white/10 text-[10px] text-muted-foreground">
+                          Example: <span className="text-foreground font-semibold">{guide.example}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Phoneme representation for /{expected}/.
+                      </p>
+                    )}
+                    {gopScore !== undefined && (
+                      <div className="mt-1 pt-1 border-t border-white/10 flex items-center justify-between text-[10px]">
+                        <span className="text-muted-foreground">Quality:</span>
+                        <span className={`font-bold ${
+                          gopScore >= 75 ? "text-emerald-400" : gopScore >= 40 ? "text-amber-400" : "text-rose-400"
+                        }`}>{gopScore}%</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Target / Expected */}
               <span className="text-[10px] opacity-60 mb-1 w-full text-center border-b border-white/5 pb-1 font-mono">
                 {expected}
               </span>
+              
+              {/* Spoken / Predicted */}
               <span className="font-bold text-sm font-mono mt-1">{spoken}</span>
+
+              {/* GoP score indicator */}
+              {gopScore !== undefined && (
+                <span className={`text-[9px] mt-1.5 px-1 py-0.2 rounded font-sans font-black tracking-tight ${
+                  gopScore >= 75 ? "text-emerald-500 dark:text-emerald-400" : gopScore >= 40 ? "text-amber-500 dark:text-amber-400" : "text-rose-500 dark:text-rose-400"
+                }`}>
+                  {gopScore}%
+                </span>
+              )}
             </div>
           );
         })}
       </div>
 
       {/* Legend */}
-      <div className="mt-6 flex flex-wrap gap-4 text-xs font-medium">
+      <div className="mt-6 flex flex-wrap gap-4 text-xs font-medium border-t border-border/20 pt-4">
         {[
-          { label: "Match", color: "bg-emerald-500/20 border-emerald-500/30" },
-          { label: "Substitution", color: "bg-red-500/20 border-red-500/30" },
-          { label: "Deletion", color: "bg-orange-500/20 border-orange-500/30" },
+          { label: "Correct Match", color: "bg-emerald-500/20 border-emerald-500/30" },
+          { label: "Substitution (Incorrect Sound)", color: "bg-rose-500/20 border-rose-500/30" },
+          { label: "Omission (Missing Sound)", color: "bg-orange-500/20 border-orange-500/30" },
+          { label: "Insertion (Extra Sound)", color: "bg-violet-500/20 border-violet-500/30" },
         ].map((item) => (
           <div
             key={item.label}
             className="flex items-center gap-2 text-muted-foreground"
           >
-            <span className={`w-3 h-3 rounded-sm border ${item.color}`} />
+            <span className={`w-3 h-3 rounded-md border ${item.color}`} />
             {item.label}
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-border/10 text-[11px] text-muted-foreground leading-relaxed">
+        <p>💡 <strong>GOP Score:</strong> Shows accuracy (0-100%) for each target sound based on acoustic confidence. Hover over any phoneme block to see detailed phonetic guides and examples!</p>
       </div>
     </div>
   );
@@ -250,6 +391,51 @@ function PitchChart({
   );
 }
 
+/* ───── Actionable Feedback ───── */
+function ActionableFeedback({ feedback }: { feedback: string[] | null }) {
+  if (!feedback || feedback.length === 0) return null;
+
+  // The first item is the summary
+  const summary = feedback[0];
+  const tips = feedback.slice(1);
+
+  return (
+    <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm mt-6">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="p-2 rounded-lg bg-indigo-500/10">
+          <Star className="w-5 h-5 text-indigo-500" />
+        </div>
+        <h2 className="text-xl font-bold text-foreground">Actionable Pronunciation Feedback</h2>
+      </div>
+
+      <div className="space-y-3">
+        {summary && (
+          <div className="p-4 rounded-xl border bg-indigo-500/5 dark:bg-indigo-500/10 border-indigo-500/20 text-foreground font-medium text-sm">
+            {summary}
+          </div>
+        )}
+
+        {tips.length > 0 && (
+          <div className="grid grid-cols-1 gap-2.5">
+            {tips.map((tip, idx) => {
+              const cleanTip = tip.replace(/^•\s*/, "");
+              return (
+                <div
+                  key={idx}
+                  className="flex items-start gap-2.5 p-3.5 rounded-xl border bg-muted/20 border-border/20 text-muted-foreground hover:text-foreground transition-all duration-200"
+                >
+                  <span className="flex h-1.5 w-1.5 mt-2 shrink-0 rounded-full bg-indigo-500" />
+                  <span className="text-xs leading-relaxed">{cleanTip}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ───── Main Dashboard ───── */
 export default function ResultsDashboard({
   data,
@@ -273,6 +459,8 @@ export default function ResultsDashboard({
   };
 
   const alignedPairs = data?.analysis?.aligned_pairs || [];
+  const gopDetails = data?.scores?.gop_details;
+  const feedback = data?.feedback || null;
 
   return (
     <div className="space-y-6">
@@ -280,7 +468,10 @@ export default function ResultsDashboard({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           {alignedPairs.length > 0 ? (
-            <PhonemeAlignment pairs={alignedPairs} />
+            <>
+              <PhonemeAlignment pairs={alignedPairs} gopDetails={gopDetails} />
+              <ActionableFeedback feedback={feedback} />
+            </>
           ) : (
             <div className="p-6 bg-card/60 backdrop-blur-sm rounded-2xl border border-border/10 shadow-lg h-full flex flex-col items-center justify-center text-muted-foreground min-h-[250px]">
               <Mic2 className="w-8 h-8 mb-4 opacity-50" />

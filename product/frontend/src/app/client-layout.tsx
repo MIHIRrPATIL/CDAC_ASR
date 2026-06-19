@@ -9,7 +9,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAuthPage = pathname === "/auth";
   const isLandingPage = pathname === "/";
-  const hideNav = isAuthPage || isLandingPage;
+  const hideNav = isAuthPage;
 
   return (
     <AuthProvider>

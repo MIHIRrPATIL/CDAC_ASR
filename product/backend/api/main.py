@@ -31,14 +31,64 @@ engine = None
 def startup_event():
     global engine
     # Safe fallback if environment variable isn't set
-    model_dir = os.getenv("ASR_MODEL_DIR", "models/trained_models/1_epoch")
+    model_dir = os.getenv("ASR_MODEL_DIR", "MihirRPatil/nptel-asr-phoneme-v3")
     logger.info(f"Loading ASR Engine with model from {model_dir}")
     try:
         engine = ASREngine(model_dir=model_dir)
         logger.info("ASR Engine successfully initialized.")
     except Exception as e:
         logger.error(f"Failed to load ASR engine: {e}")
+
+def generate_actionable_feedback(results: dict) -> list:
+    feedback = []
+    
+    # 1. Phoneme errors analysis
+    error_stats = results.get("error_stats", {})
+    subs = error_stats.get("sub", 0)
+    ins = error_stats.get("ins", 0)
+    dels = error_stats.get("del", 0)
+    
+    # Overall statement
+    total_errors = subs + ins + dels
+    if total_errors == 0:
+        feedback.append("Excellent pronunciation! All phonemes aligned perfectly.")
+    else:
+        feedback.append(f"Pronunciation analysis detected {total_errors} variant sound{'s' if total_errors > 1 else ''}: {subs} substitution{'s' if subs != 1 else ''}, {dels} omission{'s' if dels != 1 else ''}, and {ins} extra sound{'s' if ins != 1 else ''}.")
+
+    # 2. Specific segment level recommendations from alignment pairs
+    aligned_pairs = results.get("aligned_pairs", [])
+    
+    # Find up to 3 specific error instances to guide the user
+    error_count = 0
+    for idx, (spoken, expected) in enumerate(aligned_pairs):
+        if error_count >= 3:
+            break
+            
+        if spoken == "-": # Deletion
+            feedback.append(f"• You omitted the expected sound '{expected}' at position {idx+1}. Try to fully articulate it.")
+            error_count += 1
+        elif expected == "-": # Insertion
+            feedback.append(f"• You added an extra sound '{spoken}' at position {idx+1}. Practice transitioning without this extra sound.")
+            error_count += 1
+        elif spoken != expected: # Substitution
+            feedback.append(f"• You pronounced '{expected}' as '{spoken}' at position {idx+1}. Try adjusting your tongue shape to match the target sound.")
+            error_count += 1
+
+    # 3. Prosody and Pitch recommendations
+    pitch_data = results.get("pitch", {})
+    pitch_similarity = pitch_data.get("similarity", 1.0) if isinstance(pitch_data, dict) else float(pitch_data)
+    if pitch_similarity < 0.60:
+        feedback.append("• Pitch Curve: Your intonation curve differs significantly from the reference. Focus on native-like sentence stress and rising/falling tones.")
+    elif pitch_similarity < 0.80:
+        feedback.append("• Intonation: Good effort! Try matching the pitch rises and falls on the stressed vowel syllables to sound more natural.")
         
+    duration_data = results.get("duration", {})
+    duration_accuracy = duration_data.get("accuracy", 1.0) if isinstance(duration_data, dict) else float(duration_data)
+    if duration_accuracy < 0.65:
+        feedback.append("• Rhythm: The timing of some phonemes is too rushed or held too long. Practice syllable-by-syllable timing.")
+        
+    return feedback
+
 @app.post("/analyze")
 async def analyze_audio(
     audio_file: UploadFile = File(...),
@@ -76,6 +126,7 @@ async def analyze_audio(
             'error_stats': results.get('error_stats', {}),
             'aligned_pairs': results.get('aligned_pairs', [])
         }
+        feedback_list = generate_actionable_feedback(results)
         # --- DB Persistence ---
         try:
             # Extract scores for DB using the correct keys from research/ScoreCalcs.py
@@ -129,7 +180,7 @@ async def analyze_audio(
         return {
             "scores": scores,
             "analysis": analysis,
-            "feedback": None
+            "feedback": feedback_list
         }
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))

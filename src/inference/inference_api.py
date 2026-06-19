@@ -21,8 +21,9 @@ def init_pipeline(model_dir: str):
     if _model is not None:
         return
     
-    # Resolve to absolute path so HuggingFace treats it as local, not a repo ID
-    model_dir = os.path.abspath(model_dir)
+    # Resolve to absolute path so HuggingFace treats it as local, not a repo ID, if it exists locally
+    if os.path.exists(model_dir):
+        model_dir = os.path.abspath(model_dir)
     
     _g2p_manager = G2PManager()
     

@@ -17,16 +17,16 @@ import {
   MoreHorizontal,
   Menu,
   X,
-  Rocket,
+  BookOpen,
   LogOut,
   LogIn,
 } from "lucide-react";
 
 // ASR Navigation Items
 const mainNavItems = [
-  { label: "Analyzer", href: "/analyzer", icon: Mic },
   { label: "Dashboard", href: "/dashboard", icon: BarChart3 },
-  { label: "Features", href: "/features", icon: Rocket },
+  { label: "Analyzer", href: "/analyzer", icon: Mic },
+  { label: "Paragraphs", href: "/paragraphs", icon: BookOpen },
 ];
 
 const moreNavItems = [

@@ -1,4 +1,4 @@
-from research.inference_api import init_pipeline, run_inference
+from src.inference.inference_api import init_pipeline, run_inference
 
 class ASREngine:
     def __init__(self, model_dir: str):
