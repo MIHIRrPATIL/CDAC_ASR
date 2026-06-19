@@ -311,30 +311,47 @@ class PronunciationScorer:
         Returns:
             List of (start_frame, end_frame) matching each token in targets.
         """
-        device = log_probs.device
-        targets = targets.to(device)
-        
         B, T, C = log_probs.shape
         L = targets.shape[1]
         
-        input_lengths = torch.tensor([T], dtype=torch.long, device=device)
-        target_lengths = torch.tensor([L], dtype=torch.long, device=device)
+        # Move inputs to CPU to avoid CUDA kernel/driver binary compatibility segfaults
+        # and multi-GPU device mapping issues in torchaudio's C++ extension.
+        log_probs_cpu = log_probs.cpu()
+        targets_cpu = targets.cpu()
+        
+        targets_list = targets_cpu[0].numpy().tolist()
+        
+        # Validate constraints to prevent C++ out-of-bounds/assertion crashes
+        # 1. Target sequence cannot be empty
+        # 2. Input frames must be >= target length
+        # 3. Target sequence must not contain the blank/pad token
+        if L == 0 or T < L or blank_id in targets_list:
+            print(f"Warning: CTC alignment constraints violated (T={T}, L={L}, blank_in_target={blank_id in targets_list}). Falling back to linear alignment.")
+            intervals = []
+            step = T / max(L, 1)
+            for idx in range(L):
+                s = int(idx * step)
+                e = int((idx + 1) * step) - 1
+                intervals.append((s, max(s, e)))
+            return intervals
+            
+        input_lengths = torch.tensor([T], dtype=torch.long, device="cpu")
+        target_lengths = torch.tensor([L], dtype=torch.long, device="cpu")
         
         # Log softmax along vocab dimension
-        log_probs_norm = torch.log_softmax(log_probs, dim=-1)
+        log_probs_norm = torch.log_softmax(log_probs_cpu, dim=-1)
         
         try:
-            # torchaudio forced_align
+            # torchaudio forced_align on CPU
             alignments, scores = F.forced_align(
                 log_probs_norm, 
-                targets, 
+                targets_cpu, 
                 input_lengths=input_lengths, 
                 target_lengths=target_lengths, 
                 blank=blank_id
             )
             
-            path = alignments[0].cpu().numpy().tolist()
-            targets_list = targets[0].cpu().numpy().tolist()
+            path = alignments[0].numpy().tolist()
             
             # Extract intervals using state machine
             intervals = []
