@@ -72,9 +72,11 @@ def main():
             temp_created_wav = True
             
             # Decode the target phoneme IDs into a phoneme string
-            vocab = _processor.tokenizer.get_vocab()
+            from transformers import Wav2Vec2Processor
+            processor = Wav2Vec2Processor.from_pretrained(model_dir)
+            vocab = processor.tokenizer.get_vocab()
             id2phoneme = {v: k for k, v in vocab.items()}
-            pad_id = _processor.tokenizer.pad_token_id or 0
+            pad_id = processor.tokenizer.pad_token_id or 0
             clean_ref = [id2phoneme.get(rid, "<unk>") for rid in sample["labels"] if rid >= 0 and rid != pad_id]
             target_phonemes = " ".join(clean_ref)
             
