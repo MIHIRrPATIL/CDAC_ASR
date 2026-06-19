@@ -32,10 +32,15 @@ def main():
     print("=" * 60)
 
     # 1. Initialize Pipeline with the trained model
-    model_dir = "models/trained_models/20k_steps"
+    model_dir = sys.argv[1] if len(sys.argv) > 1 else "/data/nptel_embedder_checkpoints/early_stop_health_check"
     if not os.path.exists(model_dir):
-        print(f"❌ Error: Model directory '{model_dir}' not found.")
-        sys.exit(1)
+        fallback_dir = "models/trained_models/20k_steps"
+        if os.path.exists(fallback_dir):
+            print(f"ℹ️ Model dir '{model_dir}' not found. Falling back to '{fallback_dir}'...")
+            model_dir = fallback_dir
+        else:
+            print(f"❌ Error: Model directory '{model_dir}' not found.")
+            sys.exit(1)
         
     print(f"Initializing pipeline with model: {model_dir}...")
     init_pipeline(model_dir)
