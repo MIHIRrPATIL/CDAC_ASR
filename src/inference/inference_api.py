@@ -63,7 +63,7 @@ def init_pipeline(model_dir: str):
     else:
         _id2phoneme = {}
 
-def run_inference(audio_path: str, target_word: str = None, target_phonemes: str = None) -> dict:
+def run_inference(audio_path: str, target_word: str = None, target_phonemes: str = None, preprocess: bool = True) -> dict:
     global _model, _processor, _audio_prep, _scorer, _id2phoneme, _g2p_manager
     
     if _model is None:
@@ -88,7 +88,8 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
         import torchaudio
         speech = torchaudio.functional.resample(torch.tensor(speech), out_sr, 16000).numpy()
         
-    speech = _audio_prep.preprocess(speech)
+    if preprocess:
+        speech = _audio_prep.preprocess(speech)
     
     inputs = _processor(speech, sampling_rate=sr, return_tensors="pt", padding=True)
     input_values = inputs.input_values.to(device)

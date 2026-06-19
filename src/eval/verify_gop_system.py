@@ -87,11 +87,12 @@ def main():
             sys.exit(1)
 
     print(f"\n1. Running baseline inference on: '{wav_path}'...")
+    do_preprocess = not temp_created_wav
     if target_phonemes:
-        baseline_results = run_inference(wav_path, target_phonemes=target_phonemes)
+        baseline_results = run_inference(wav_path, target_phonemes=target_phonemes, preprocess=do_preprocess)
     else:
         print(f"Target word for scoring: '{target_word}'")
-        baseline_results = run_inference(wav_path, target_word=target_word)
+        baseline_results = run_inference(wav_path, target_word=target_word, preprocess=do_preprocess)
     
     gop_details = baseline_results.get("gop_details", [])
     if not gop_details:
@@ -134,9 +135,9 @@ def main():
     # 5. Run inference on corrupted audio
     print(f"\n2. Running inference on corrupted file: '{temp_corrupted_wav_path}'...")
     if target_phonemes:
-        corrupted_results = run_inference(temp_corrupted_wav_path, target_phonemes=target_phonemes)
+        corrupted_results = run_inference(temp_corrupted_wav_path, target_phonemes=target_phonemes, preprocess=do_preprocess)
     else:
-        corrupted_results = run_inference(temp_corrupted_wav_path, target_word=target_word)
+        corrupted_results = run_inference(temp_corrupted_wav_path, target_word=target_word, preprocess=do_preprocess)
     corrupted_gop = corrupted_results.get("gop_details", [])
 
     print("\nCorrupted GoP Scores:")
