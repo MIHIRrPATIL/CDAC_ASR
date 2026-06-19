@@ -39,12 +39,28 @@ def init_pipeline(model_dir: str):
     _audio_prep = AudioPreprocessor(sr=16000)
     _scorer = PronunciationScorer()
     
+    # Try loading phoneme2id.json, fallback to vocab.json if not found
     phoneme_map_path = os.path.join(model_dir, "phoneme2id.json")
-    try:
-        with open(phoneme_map_path, "r", encoding="utf8") as f:
-            phoneme2id = json.load(f)
+    vocab_path = os.path.join(model_dir, "vocab.json")
+    
+    phoneme2id = None
+    if os.path.exists(phoneme_map_path):
+        try:
+            with open(phoneme_map_path, "r", encoding="utf8") as f:
+                phoneme2id = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load {phoneme_map_path}: {e}")
+            
+    if phoneme2id is None and os.path.exists(vocab_path):
+        try:
+            with open(vocab_path, "r", encoding="utf8") as f:
+                phoneme2id = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load {vocab_path}: {e}")
+            
+    if phoneme2id:
         _id2phoneme = {int(v): k for k, v in phoneme2id.items()}
-    except FileNotFoundError:
+    else:
         _id2phoneme = {}
 
 def run_inference(audio_path: str, target_word: str = None, target_phonemes: str = None) -> dict:
@@ -89,7 +105,7 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
     valid_pred_phonemes = [p for p in pred_phonemes_raw if p not in ['<pad>', '<unk>']]
     
     # Map target phonemes to IDs
-    target_ids = _processor.tokenizer(ref_phonemes_raw, is_split_into_words=True).input_ids
+    target_ids = _processor.tokenizer.convert_tokens_to_ids(ref_phonemes_raw)
     targets = torch.tensor([target_ids], dtype=torch.long, device=device)
     blank_id = _processor.tokenizer.pad_token_id or 0
     

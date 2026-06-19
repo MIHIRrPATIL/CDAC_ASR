@@ -335,6 +335,26 @@ def main():
     print(f"Loading preprocessed dataset from '{args.offline_dataset_dir}'...")
     dataset_dict = load_from_disk(args.offline_dataset_dir)
     
+    # Filter out extremely long audio/labels to prevent GPU OOM
+    # 20 seconds = 320,000 samples at 16kHz
+    def filter_oom_sequences(example):
+        return len(example["input_values"]) <= 320000 and len(example["labels"]) <= 150
+
+    print("Filtering out extremely long audio (>20s) or labels (>150 tokens) to prevent CUDA OOM...")
+    if isinstance(dataset_dict, dict) or hasattr(dataset_dict, "keys"):
+        for k in list(dataset_dict.keys()):
+            orig_len = len(dataset_dict[k])
+            dataset_dict[k] = dataset_dict[k].filter(filter_oom_sequences, desc=f"Filtering {k} for OOM prevention")
+            new_len = len(dataset_dict[k])
+            if new_len < orig_len:
+                print(f"  - Removed {orig_len - new_len} long samples from split '{k}'.")
+    else:
+        orig_len = len(dataset_dict)
+        dataset_dict = dataset_dict.filter(filter_oom_sequences, desc="Filtering dataset for OOM prevention")
+        new_len = len(dataset_dict)
+        if new_len < orig_len:
+            print(f"  - Removed {orig_len - new_len} long samples from dataset.")
+    
     # Check if this is a DatasetDict containing train/test splits
     if isinstance(dataset_dict, dict) or hasattr(dataset_dict, "keys"):
         print("✓ Detected DatasetDict containing splits: ", list(dataset_dict.keys()))

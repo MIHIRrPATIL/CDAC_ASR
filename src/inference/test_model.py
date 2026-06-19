@@ -163,14 +163,29 @@ Examples:
 
     pad_id = processor.tokenizer.pad_token_id
     
-    # Load phoneme mapping
+    # Load phoneme mapping, fallback to vocab.json if not found
     phoneme_map_path = os.path.join(args.model_dir, "phoneme2id.json")
-    try:
-        with open(phoneme_map_path, "r", encoding="utf8") as f:
-            phoneme2id = json.load(f)
+    vocab_path = os.path.join(args.model_dir, "vocab.json")
+    
+    phoneme2id = None
+    if os.path.exists(phoneme_map_path):
+        try:
+            with open(phoneme_map_path, "r", encoding="utf8") as f:
+                phoneme2id = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load {phoneme_map_path}: {e}")
+            
+    if phoneme2id is None and os.path.exists(vocab_path):
+        try:
+            with open(vocab_path, "r", encoding="utf8") as f:
+                phoneme2id = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load {vocab_path}: {e}")
+            
+    if phoneme2id:
         id2phoneme = {int(v): k for k, v in phoneme2id.items()}
-    except FileNotFoundError:
-        print(f"⚠ Warning: {phoneme_map_path} not found. Using default mapping.")
+    else:
+        print(f"⚠ Warning: No phoneme mapping found at {phoneme_map_path} or {vocab_path}. Using empty mapping.")
         id2phoneme = {}
     
     # Load or record audio

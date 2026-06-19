@@ -84,7 +84,7 @@ def preprocess_batch(batch, processor_dir, dict_path):
             if len(phonemes) == 0:
                 raise ValueError("Phoneme sequence is empty after G2P conversion.")
 
-            labels = PROCESSOR.tokenizer(phonemes, is_split_into_words=True).input_ids
+            labels = PROCESSOR.tokenizer.convert_tokens_to_ids(phonemes)
             
             input_values_list.append(input_values)
             labels_list.append(labels)
@@ -144,7 +144,7 @@ def build_and_apply_vocab_patch(dataset, processor, g2p_manager, patch_path):
         phonemes = g2p_manager.convert_word(word)
         if len(phonemes) == 0:
             continue
-        ids = processor.tokenizer(phonemes, is_split_into_words=True).input_ids
+        ids = processor.tokenizer.convert_tokens_to_ids(phonemes)
         if any(i == unk_id for i in ids):
             cleaned_phonemes = []
             for p in phonemes:

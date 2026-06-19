@@ -335,10 +335,12 @@ class PrefetchDataset(torch.utils.data.IterableDataset):
         if len(phonemes) == 0:
             raise ValueError("Phoneme sequence is empty after G2P conversion.")
 
-        # 6. Phonemes to IDs
-        labels = processor.tokenizer(phonemes, is_split_into_words=True).input_ids
+        labels = processor.tokenizer.convert_tokens_to_ids(phonemes)
 
-        # 7. Max target length filter to prevent GPU OOM on extreme outlier sequences
+        # 6. Max target length and audio length filter to prevent GPU OOM
+        if len(clean_audio) > 320000:
+            raise ValueError(f"Audio duration {len(clean_audio)/16000:.1f}s exceeds maximum limit of 20 seconds.")
+
         if len(labels) > 150:
             raise ValueError(f"Phoneme sequence length {len(labels)} exceeds maximum target limit of 150.")
 
@@ -611,10 +613,17 @@ def main():
     )
 
     # 6. Execute Training
+    resume_checkpoint = None
+    if os.path.exists(args.output_dir):
+        checkpoints = [d for d in os.listdir(args.output_dir) if d.startswith("checkpoint-")]
+        if checkpoints:
+            resume_checkpoint = True
+            print(f"🔄 Found checkpoints in {args.output_dir}. Resuming training from the latest checkpoint...")
+
     print("Starting training loop (Phase 4: Anti-Collapse)...")
-    print(f"  LR: {args.learning_rate}, Warmup: 8500, Grad Clip: 1.0")
+    print(f"  LR: {args.learning_rate}, Warmup: {training_args.warmup_steps}, Grad Clip: 1.0")
     print(f"  Effective Batch: {args.batch_size * grad_accum_steps}")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_checkpoint)
 
     # Final Save
     trainer.save_model(args.output_dir)

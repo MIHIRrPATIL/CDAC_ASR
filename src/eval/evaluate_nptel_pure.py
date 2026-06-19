@@ -214,7 +214,7 @@ def main():
                 skipped += 1
                 continue
                 
-            target_ids = processor.tokenizer(target_phonemes, is_split_into_words=True).input_ids
+            target_ids = processor.tokenizer.convert_tokens_to_ids(target_phonemes)
             clean_ref = [rid for rid in target_ids if rid >= 0 and rid != pad_token_id]
 
             if not clean_ref:
