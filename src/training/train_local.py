@@ -268,6 +268,7 @@ def main():
     parser.add_argument("--steps", type=int, default=50000)
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--save_steps", type=int, default=1000)
+    parser.add_argument("--warmup_steps", type=int, default=None, help="Number of warmup steps. Defaults to 10% of total steps.")
     parser.add_argument("--push_hub", action="store_true", help="Push checkpoints to Hugging Face Hub")
     parser.add_argument("--dry_run", action="store_true", help="Perform a quick 5-step test")
     parser.add_argument("--max_samples", type=int, default=None, help="Limit training dataset to first N samples.")
@@ -404,7 +405,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=grad_accum_steps,
         learning_rate=args.learning_rate,
-        warmup_steps=0 if args.dry_run else int(0.1 * args.steps),  # 10% of total steps
+        warmup_steps=0 if args.dry_run else (args.warmup_steps if args.warmup_steps is not None else int(0.1 * args.steps)),  # Defaults to 10% of steps if not set
         max_grad_norm=1.0,                         # Gradient clipping (expert rec)
         bf16=use_bf16,
         fp16=False,
