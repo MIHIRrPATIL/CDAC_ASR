@@ -428,10 +428,13 @@ class PronunciationScorer:
                     log_probs: torch.Tensor, 
                     targets: torch.Tensor, 
                     intervals: List[Tuple[int, int]], 
-                    vocab_tokens: List[str]) -> List[Dict]:
+                    vocab_tokens: List[str],
+                    blank_id: int = 0) -> List[Dict]:
         """
-        Computes Goodness of Pronunciation (GoP) log-likelihood ratios.
+        Computes Goodness of Pronunciation (GoP) using max-pooling and blank-exclusion.
         """
+        # Argmax predictions across all frames to identify blank frames
+        pred_ids = torch.argmax(log_probs[0], dim=-1).cpu().numpy()
         probs = torch.softmax(log_probs[0], dim=-1)
         
         L = targets.shape[1]
@@ -445,15 +448,25 @@ class PronunciationScorer:
             phoneme = vocab_tokens[idx] if idx < len(vocab_tokens) else str(token_id)
             
             s_frame, e_frame = intervals[idx]
-            token_probs = probs[s_frame:e_frame+1, token_id]
             
-            if len(token_probs) > 0:
-                log_probs_slice = torch.log(token_probs + 1e-8)
-                gop_score = log_probs_slice.mean().item()
-            else:
-                gop_score = -10.0
+            # Blank-Exclusion: Filter out frames where argmax prediction is <pad> (blank_id)
+            valid_frames = []
+            for f in range(s_frame, e_frame + 1):
+                if pred_ids[f] != blank_id:
+                    valid_frames.append(f)
+                    
+            # If all frames in segment are blank, fall back to evaluating all frames in the segment
+            if not valid_frames:
+                valid_frames = list(range(s_frame, e_frame + 1))
                 
-            gop_prob = float(np.exp(gop_score))
+            token_probs = probs[valid_frames, token_id]
+            
+            # Max-Pooling: Take the maximum probability inside the valid segment frames
+            if len(token_probs) > 0:
+                gop_prob = float(torch.max(token_probs).item())
+            else:
+                gop_prob = 1e-8
+                
             is_correct = bool(gop_prob >= 0.40)
             
             results.append({

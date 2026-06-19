@@ -114,7 +114,7 @@ def run_inference(audio_path: str, target_word: str = None, target_phonemes: str
     intervals = _scorer.ctc_forced_align(logits, targets, blank_id=blank_id)
     
     # Run GoP Scorer
-    gop_details = _scorer.compute_gop(logits, targets, intervals, ref_phonemes_raw)
+    gop_details = _scorer.compute_gop(logits, targets, intervals, ref_phonemes_raw, blank_id=blank_id)
     
     duration = len(speech) / sr
     pred_times = [(i*0.02, (i+1)*0.02) for i in range(len(valid_pred_phonemes))]
