@@ -30,8 +30,11 @@ ENV HOME=/home/user \
 # Copy requirements file first for caching
 COPY --chown=user:user requirements-docker.txt /app/requirements-docker.txt
 
+# Upgrade pip to ensure correct wheel tag resolution
+RUN pip3 install --no-cache-dir --user --upgrade pip
+
 # Install PyTorch CPU-only package (saves ~1.5GB of image size)
-RUN pip3 install --no-cache-dir --user torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+RUN pip3 install --no-cache-dir --user torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
 
 # Install all other python requirements
 RUN pip3 install --no-cache-dir --user -r /app/requirements-docker.txt
