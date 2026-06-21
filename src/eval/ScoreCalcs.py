@@ -2,7 +2,6 @@ import Levenshtein
 from typing import List, Tuple, Dict
 import numpy as np
 from fastdtw import fastdtw
-import librosa
 import torch
 import torchaudio.functional as F
 
