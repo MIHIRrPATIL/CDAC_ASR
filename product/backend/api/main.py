@@ -27,6 +27,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def read_root():
+    return {
+        "status": "online",
+        "service": "CDAC ASR Pronunciation Coach API",
+        "model": "MihirRPatil/nptel-asr-phoneme-v3"
+    }
+
 engine = None
 
 @app.on_event("startup")

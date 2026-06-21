@@ -1,0 +1,33 @@
+# Web Framework & API
+fastapi
+uvicorn
+python-multipart
+pydantic
+
+# Database Client
+prisma
+
+# Security / Authentication
+bcrypt
+PyJWT
+
+# TTS Reference Generator
+gTTS
+
+# Environment configuration
+python-dotenv
+
+# ASR & Machine Learning
+transformers==4.38.2
+huggingface-hub==0.21.4
+httpx==0.26.0
+soundfile
+numpy
+scipy
+jiwer
+python-Levenshtein
+fastdtw
+tqdm
+
+# NLP & G2P conversion
+g2p-en

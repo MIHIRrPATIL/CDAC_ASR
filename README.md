@@ -1,3 +1,12 @@
+---
+title: CDAC ASR Pronunciation Coach
+emoji: 🎤
+colorFrom: orange
+colorTo: amber
+sdk: docker
+app_port: 7860
+---
+
 # Phoneme Pronunciation Correction System
 
 An advanced phoneme-level pronunciation correction system based on **Wav2Vec2** and **Contrastive CTC Alignment**. Designed for high-fidelity feedback and optimized for Indian English (NPTEL2020 dataset).

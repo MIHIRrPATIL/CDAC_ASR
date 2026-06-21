@@ -32,7 +32,8 @@ if __name__ == "__main__":
     print(f"--- CDAC ASR Backend (Internal Entry Point) ---")
     print(f"Project Root: {project_root}")
     print(f"Loading Model from: {os.environ['ASR_MODEL_DIR']}")
-    print(f"Server starting at http://localhost:8000")
     
-    # Run the server
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Run the server on PORT env var (defaults to 8000 for local development)
+    port = int(os.environ.get("PORT", 8000))
+    print(f"Server starting at http://0.0.0.0:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)

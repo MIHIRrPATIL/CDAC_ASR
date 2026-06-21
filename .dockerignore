@@ -1,0 +1,29 @@
+# Virtual Environment & Python cache
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Version control and editor files
+.git/
+.github/
+.vscode/
+.gitignore
+
+# Frontend code (Deployed separately on Vercel)
+product/frontend/
+
+# Local configuration / secrets
+.env
+product/backend/.env
+
+# Training datasets and checkpoints (saves GBs of build context)
+sample_dataset/
+nptel_embedder_checkpoints/
+models/
+docs/
+
+# Backend audio caches
+product/backend/cache/tts/*

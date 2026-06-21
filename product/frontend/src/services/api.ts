@@ -41,7 +41,8 @@ export interface PronunciationResponse {
   target_word?: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 
+  (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
 
 // Headers generator
 const getAuthHeaders = () => {
