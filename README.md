@@ -1,8 +1,8 @@
 ---
 title: CDAC ASR Pronunciation Coach
 emoji: 🎤
-colorFrom: orange
-colorTo: amber
+colorFrom: yellow
+colorTo: red
 sdk: docker
 app_port: 7860
 ---
