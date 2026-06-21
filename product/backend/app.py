@@ -20,21 +20,10 @@ os.environ["ASR_MODEL_DIR"] = model_path
 
 # 3. Import the FastAPI app
 try:
-    # From within the backend package, we can import from .api.main or add root to sys.path
     from api.main import app
-    import models
-    from database import engine
-    
-    # Auto-create database tables
-    models.Base.metadata.create_all(bind=engine)
 except ImportError:
     try:
         from backend.api.main import app
-        import backend.models as models
-        from backend.database import engine
-        
-        # Auto-create database tables
-        models.Base.metadata.create_all(bind=engine)
     except ImportError as e:
         print(f"Error: Could not find the ASR modules. Details: {e}")
         sys.exit(1)

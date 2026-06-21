@@ -31,15 +31,33 @@ class AudioPreprocessor:
 
     def apply_fft_filter(self, audio, noise_reduction_factor=0.02):
         """
-        Simple Spectral Subtraction using FFT to reduce background hiss.
+        Robust Spectral Subtraction using FFT to reduce background hiss.
+        Estimates the noise floor from the quietest 10% region of the audio (minimum statistics).
         """
         # Convert to frequency domain
         audio_fft = scipy.fftpack.fft(audio)
         audio_mag = np.abs(audio_fft)
         audio_phase = np.angle(audio_fft)
 
-        # Estimate noise (using first small chunk of audio, assuming silence)
-        noise_estimate = np.mean(audio_mag[:int(self.sr * 0.1)])
+        # Safely estimate noise spectrum from the quietest chunk to prevent speech distortion
+        n_chunks = 10
+        chunk_size = len(audio) // n_chunks
+        if chunk_size > 100:
+            min_rms = float('inf')
+            min_chunk_idx = 0
+            for k in range(n_chunks):
+                chunk = audio[k * chunk_size : (k + 1) * chunk_size]
+                rms = np.sqrt(np.mean(chunk**2))
+                if rms < min_rms:
+                    min_rms = rms
+                    min_chunk_idx = k
+            
+            # Extract noise from the quietest window
+            noise_chunk = audio[min_chunk_idx * chunk_size : (min_chunk_idx + 1) * chunk_size]
+            noise_fft = scipy.fftpack.fft(noise_chunk, n=len(audio))
+            noise_estimate = np.abs(noise_fft)
+        else:
+            noise_estimate = np.mean(audio_mag) * 0.05
         
         # Subtract noise
         audio_mag_cleaned = np.maximum(audio_mag - (noise_estimate * noise_reduction_factor), 0)

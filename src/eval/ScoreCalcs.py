@@ -186,8 +186,56 @@ class PronunciationScorer:
         
         return pitch_contours
 
+    def _extract_continuous_pitch(self, waveform, sr) -> List[float]:
+        """
+        Extracts continuous pitch contour (list of Hz values) at 20ms frames (320 samples).
+        """
+        try:
+            if isinstance(waveform, torch.Tensor):
+                waveform = waveform.cpu().numpy()
+            if isinstance(waveform, np.ndarray):
+                waveform = waveform.squeeze()
+                
+            hop_length = 320
+            frame_size = 512
+            min_lag = int(sr / 500)
+            max_lag = int(sr / 50)
+            num_samples = len(waveform)
+            f0 = []
+            
+            for start_sample in range(0, num_samples - frame_size, hop_length):
+                frame = waveform[start_sample:start_sample + frame_size]
+                frame = frame - np.mean(frame)
+                if np.std(frame) < 1e-4:
+                    f0.append(0.0)
+                    continue
+                    
+                corr = np.correlate(frame, frame, mode='full')
+                corr = corr[len(corr)//2:]
+                
+                if len(corr) > max_lag:
+                    search_region = corr[min_lag:max_lag]
+                    if len(search_region) > 0:
+                        peak_lag = np.argmax(search_region) + min_lag
+                        pitch = sr / peak_lag
+                        if corr[peak_lag] > 0.25 * corr[0]:
+                            f0.append(float(pitch))
+                        else:
+                            f0.append(0.0)
+                    else:
+                        f0.append(0.0)
+                else:
+                    f0.append(0.0)
+                    
+            # Map 0.0 values to None for clean JSON serialization
+            f0_clean = [val if val > 0.0 else None for val in f0]
+            return f0_clean
+        except Exception as e:
+            print(f"Error in continuous pitch extraction: {e}")
+            return []
+
     def pitch_score(self, pred_waveform, ref_waveform, sr, aligned_pairs, pred_times, ref_times):
-        """Compare pitch contours using DTW"""
+        """Compare pitch contours using DTW and return trajectories"""
         # Ensure waveforms are numpy arrays
         if not isinstance(pred_waveform, np.ndarray):
             pred_waveform = np.array(pred_waveform)
@@ -232,13 +280,20 @@ class PronunciationScorer:
                 if p_phn == '-': r_idx += 1
                 if r_phn == '-': p_idx += 1
         
-        if not metrics['similarity']:
-            return {'similarity': 0.0, 'error_hz': 0.0, 'correlation': 0.0}
-            
+        # Calculate continuous trajectories for visualization
+        trajectory = self._extract_continuous_pitch(pred_waveform, sr)
+        reference_trajectory = self._extract_continuous_pitch(ref_waveform, sr)
+        
+        similarity = np.mean(metrics['similarity']) if metrics['similarity'] else 0.0
+        error_hz = np.mean(metrics['error_hz']) if metrics['error_hz'] else 0.0
+        correlation = np.mean(metrics['correlation']) if metrics['correlation'] else 0.0
+        
         return {
-            'similarity': np.mean(metrics['similarity']),
-            'error_hz': np.mean(metrics['error_hz']),
-            'correlation': np.mean(metrics['correlation']) if metrics['correlation'] else 0.0
+            'similarity': float(similarity),
+            'error_hz': float(error_hz),
+            'correlation': float(correlation),
+            'trajectory': trajectory,
+            'reference_trajectory': reference_trajectory
         }
 
     def _extract_stress(self, phonemes):

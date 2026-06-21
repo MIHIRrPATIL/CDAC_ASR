@@ -1,0 +1,77 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = 5
+}
+
+model User {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  email                 String                 @unique
+  name                  String?
+  passwordHash          String
+  createdAt             DateTime               @default(now())
+  totalPracticeSeconds  Int                    @default(0)
+  globalRankScore       Float                  @default(0.0)
+  dailyStreak           Int                    @default(0)
+  lastActiveDate        DateTime?
+  totalPoints           Int                    @default(0)
+  l1Language            String                 @default("English")
+  entries               AudioEntry[]
+  spacedRepetitionQueue SpacedRepetition[]
+  customWordLists       CustomWordList[]
+}
+
+model AudioEntry {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  targetWord       String
+  audioStorageUrl  String?
+  overallScore     Float    @default(0.0)
+  phonemeScore     Float?
+  durationScore    Float?
+  pitchScore       Float?
+  stressScore      Float?
+  fluencyWpm       Float?
+  pauseDurationMs  Int?
+  fillerWordCount  Int?
+  pitchTrajectory  Json?
+  phonemeAlignment Json?
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SpacedRepetition {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  word         String
+  phonemes     String
+  easeFactor   Float    @default(2.5)
+  interval     Int      @default(1)
+  repetitions  Int      @default(0)
+  nextReviewAt DateTime
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CustomWordList {
+  id          String          @id @default(uuid()) @db.Uuid
+  userId      String          @db.Uuid
+  title       String
+  description String?
+  createdAt   DateTime        @default(now())
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries     WordListEntry[]
+}
+
+model WordListEntry {
+  id       String         @id @default(uuid()) @db.Uuid
+  listId   String         @db.Uuid
+  word     String
+  phonemes String?
+  wordList CustomWordList @relation(fields: [listId], references: [id], onDelete: Cascade)
+}

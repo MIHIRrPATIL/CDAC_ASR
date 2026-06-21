@@ -8,6 +8,7 @@ import {
   Sparkles,
   AudioLines,
 } from "lucide-react";
+import { generateAIText } from "../services/api";
 
 interface ParagraphInputProps {
   onAudioSubmit: (file: File, targetText: string) => void;
@@ -34,11 +35,26 @@ export default function ParagraphInput({
   isLoading,
 }: ParagraphInputProps) {
   const [text, setText] = useState("");
+  const [topic, setTopic] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleGenerate = async () => {
+    if (!topic.trim()) return;
+    setIsGenerating(true);
+    try {
+      const res = await generateAIText(topic.trim());
+      setText(res.paragraph);
+    } catch (err) {
+      console.error("Failed to generate AI paragraph:", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   useEffect(() => {
     if (isRecording) {
@@ -125,7 +141,7 @@ export default function ParagraphInput({
             <button
               key={preset.label}
               onClick={() => setText(preset.text)}
-              disabled={isLoading || isRecording}
+              disabled={isLoading || isRecording || isGenerating}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                 text === preset.text
                   ? "bg-orange-500/10 border-orange-500/40 text-orange-600 dark:text-orange-400 font-semibold"
@@ -135,6 +151,44 @@ export default function ParagraphInput({
               {preset.label}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* AI Generator Block */}
+      <div className="p-5 rounded-2xl border border-orange-500/20 bg-orange-500/5 dark:bg-orange-950/20 flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-orange-500 animate-pulse" />
+          <span className="text-sm font-bold text-foreground">AI Paragraph Generator</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Enter a topic to generate a reading passage that incorporates your personal pronunciation weaknesses.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            disabled={isGenerating || isLoading || isRecording}
+            placeholder="e.g., job interview, space flight, requesting a coffee..."
+            className="flex-1 px-3.5 py-2.5 bg-white dark:bg-zinc-900 border border-border/80 dark:border-border/40 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50 text-foreground transition-all"
+          />
+          <button
+            onClick={handleGenerate}
+            disabled={!topic.trim() || isGenerating || isLoading || isRecording}
+            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white flex items-center gap-1.5 transition-all shadow-md shadow-orange-500/10 dark:shadow-none cursor-pointer"
+          >
+            {isGenerating ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} />
+                Generate
+              </>
+            )}
+          </button>
         </div>
       </div>
 

@@ -1,9 +1,8 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from database import get_db
-from models import User
+from prisma.models import User
 from auth import hash_password, verify_password, create_access_token, get_current_user
 
 logger = logging.getLogger(__name__)
@@ -26,19 +25,18 @@ class LoginRequest(BaseModel):
 
 # ──── Register ────
 @router.post("/register")
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == req.email).first()
+async def register(req: RegisterRequest, db = Depends(get_db)):
+    existing = await db.user.find_unique(where={"email": req.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    user = User(
-        email=req.email,
-        name=req.username,
-        password_hash=hash_password(req.password),
+    user = await db.user.create(
+        data={
+            "email": req.email,
+            "name": req.username,
+            "passwordHash": hash_password(req.password),
+        }
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
 
     token = create_access_token(str(user.id), user.email)
     return {
@@ -53,9 +51,9 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 # ──── Login ────
 @router.post("/login")
-def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email).first()
-    if not user or not verify_password(req.password, user.password_hash):
+async def login(req: LoginRequest, db = Depends(get_db)):
+    user = await db.user.find_unique(where={"email": req.email})
+    if not user or not verify_password(req.password, user.passwordHash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_access_token(str(user.id), user.email)
@@ -71,7 +69,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 # ──── Get Current User ────
 @router.get("/me")
-def me(user: User = Depends(get_current_user)):
+async def me(user: User = Depends(get_current_user)):
     return {
         "user": {
             "id": str(user.id),

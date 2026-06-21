@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CustomCursor } from "../../components/custom-cursor";
 import { GrainOverlay } from "../../components/grain-overlay";
 import { ProtectedRoute } from "../../components/protected-route";
+import { useRouter } from "next/navigation";
 import {
   AreaChart,
   Area,
@@ -18,17 +19,23 @@ import {
   TrendingUp,
   BookOpen,
   Award,
-  MapPin,
   Clock,
   ArrowRight,
   Sparkles,
+  Mic,
+  Activity as ActivityIcon,
+  Flame,
 } from "lucide-react";
+import { getDashboardStats, DashboardStats } from "../../services/api";
 
 export default function DashboardPage() {
-  const [mounted] = useState(true);
+  const router = useRouter();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isDemo, setIsDemo] = useState(false);
 
-  // Mock Data: Recent pronunciation scores
-  const historyData = [
+  // Fallback Mock Data for demo mode if user has 0 entries
+  const demoHistory = [
     { date: "Mon", score: 65 },
     { date: "Tue", score: 68 },
     { date: "Wed", score: 74 },
@@ -38,38 +45,73 @@ export default function DashboardPage() {
     { date: "Sun", score: 92 },
   ];
 
-  const recentRecordings = [
-    { word: "because", date: "Today", score: 92, improvement: "+4%" },
-    { word: "temperature", date: "Yesterday", score: 85, improvement: "+12%" },
-    { word: "specifically", date: "Wednesday", score: 74, improvement: "+2%" },
+  const demoHeatmap = [
+    { phoneme: "ʈ", accuracy: 45, total_practiced: 12 },
+    { phoneme: "ɖ", accuracy: 52, total_practiced: 8 },
+    { phoneme: "ɲ", accuracy: 58, total_practiced: 15 },
+    { phoneme: "ʉː", accuracy: 64, total_practiced: 10 },
+    { phoneme: "ə", accuracy: 71, total_practiced: 22 },
+    { phoneme: "ʃ", accuracy: 75, total_practiced: 18 },
   ];
 
-  const learningPaths = [
-    {
-      title: "Mastering Fricatives",
-      desc: "Focus on 's', 'z', 'f', 'v'",
-      progress: 75,
-      color: "emerald",
-    },
-    {
-      title: "Rhythm & Stress",
-      desc: "Word-level syllable intonation",
-      progress: 40,
-      color: "blue",
-    },
-    {
-      title: "Vowel Transitions",
-      desc: "Diphthong articulation",
-      progress: 15,
-      color: "purple",
-    },
-  ];
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const data = await getDashboardStats();
+        if (!data.history || data.history.length === 0) {
+          setIsDemo(true);
+          setStats({
+            overall_accuracy: 78,
+            practice_seconds: 15120, // 4.2 hours
+            daily_streak: 5,
+            global_rank: 8,
+            history: demoHistory,
+            heatmap: demoHeatmap,
+          });
+        } else {
+          setIsDemo(false);
+          setStats(data);
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard stats, enabling demo mode:", err);
+        setIsDemo(true);
+        setStats({
+          overall_accuracy: 78,
+          practice_seconds: 15120,
+          daily_streak: 5,
+          global_rank: 8,
+          history: demoHistory,
+          heatmap: demoHeatmap,
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadStats();
+  }, []);
 
-  if (!mounted) return null;
+  if (loading) {
+    return (
+      <ProtectedRoute>
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <CustomCursor />
+          <GrainOverlay />
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="w-12 h-12 rounded-full border-4 border-orange-500/20 border-t-orange-500 animate-spin" />
+            <p className="text-muted-foreground font-mono text-sm tracking-wider">COMPILING ANALYTICS...</p>
+          </div>
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
+  const activeHistory = stats?.history || [];
+  const activeHeatmap = stats?.heatmap || [];
+  const practiceHours = stats ? (stats.practice_seconds / 3600).toFixed(1) : "0.0";
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background text-foreground">
         <CustomCursor />
         <GrainOverlay />
 
@@ -78,17 +120,25 @@ export default function DashboardPage() {
           <section className="mb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
               <div>
-                <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">
+                <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2 flex items-center gap-3">
                   Your Progress Dashboard
+                  {isDemo && (
+                    <span className="text-xs font-mono uppercase bg-orange-500/10 text-orange-400 border border-orange-500/20 px-2 py-0.5 rounded-md">
+                      Demo Mode
+                    </span>
+                  )}
                 </h1>
                 <p className="text-muted-foreground font-medium flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-orange-500" />
-                  Track your phonetic improvement over time
+                  Track your phonetic improvement and custom target sounds
                 </p>
               </div>
-              <button className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold bg-orange-500 hover:bg-orange-600 text-white shadow-md transition-all hover:-translate-y-0.5">
-                <TrendingUp size={18} />
-                Generate Study Plan
+              <button 
+                onClick={() => router.push("/analyzer")}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold bg-orange-500 hover:bg-orange-600 text-white shadow-md transition-all hover:-translate-y-0.5 cursor-pointer"
+              >
+                <Mic size={18} />
+                Start Practice session
               </button>
             </div>
           </section>
@@ -96,24 +146,25 @@ export default function DashboardPage() {
           {/* Bento Grid Layout */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Chart (Spans 2 columns) */}
-            <div className="lg:col-span-2 p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm">
+            <div className="lg:col-span-2 p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-[14px] bg-emerald-500/10">
-                    <Activity className="w-5 h-5 text-emerald-500" />
+                    <ActivityIcon className="w-5 h-5 text-emerald-500" />
                   </div>
                   <h3 className="font-semibold text-muted-foreground text-sm uppercase tracking-widest">
                     Overall Accuracy Trend
                   </h3>
                 </div>
                 <span className="text-2xl font-black text-emerald-500">
-                  92%
+                  {stats?.overall_accuracy}%
                 </span>
               </div>
+              
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
-                    data={historyData}
+                    data={activeHistory}
                     margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
                   >
                     <defs>
@@ -152,7 +203,7 @@ export default function DashboardPage() {
                       }}
                     />
                     <YAxis
-                      domain={["auto", "auto"]}
+                      domain={[0, 100]}
                       axisLine={false}
                       tickLine={false}
                       tick={{
@@ -182,138 +233,127 @@ export default function DashboardPage() {
 
             {/* Quick Stats Column */}
             <div className="flex flex-col gap-6">
-              <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm bg-linear-to-br from-blue-500/10 to-transparent rounded-[24px] border border-border/40 shadow-sm flex-1 flex flex-col justify-center">
+              {/* Daily Streak */}
+              <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm bg-linear-to-br from-orange-500/10 to-transparent rounded-[24px] border border-border/40 shadow-sm flex-1 flex flex-col justify-center">
                 <div className="flex items-center gap-3 mb-2">
-                  <Award className="w-5 h-5 text-blue-500" />
+                  <Flame className="w-5 h-5 text-orange-500" />
                   <h3 className="font-semibold text-muted-foreground text-sm uppercase tracking-widest">
-                    Global Rank
+                    Daily Streak
                   </h3>
                 </div>
                 <div className="text-[3rem] font-black text-foreground leading-none tracking-tighter">
-                  Top 8<span className="text-2xl text-muted-foreground">%</span>
+                  {stats?.daily_streak} <span className="text-2xl text-muted-foreground font-normal">days</span>
                 </div>
               </div>
 
-              <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm bg-linear-to-br from-orange-500/10 to-transparent rounded-[24px] border border-border/40 shadow-sm flex-1 flex flex-col justify-center">
+              {/* Practice Time */}
+              <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm bg-linear-to-br from-blue-500/10 to-transparent rounded-[24px] border border-border/40 shadow-sm flex-1 flex flex-col justify-center">
                 <div className="flex items-center gap-3 mb-2">
-                  <Clock className="w-5 h-5 text-orange-500" />
+                  <Clock className="w-5 h-5 text-blue-500" />
                   <h3 className="font-semibold text-muted-foreground text-sm uppercase tracking-widest">
                     Practice Time
                   </h3>
                 </div>
                 <div className="text-[3rem] font-black text-foreground leading-none tracking-tighter">
-                  4.2<span className="text-2xl text-muted-foreground">hrs</span>
+                  {practiceHours} <span className="text-2xl text-muted-foreground font-normal">hrs</span>
                 </div>
               </div>
             </div>
 
-            {/* Learning Paths */}
+            {/* Phoneme Weakness Heatmap Section (Spans 2 columns) */}
             <div className="lg:col-span-2 p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 rounded-[14px] bg-purple-500/10">
-                  <BookOpen className="w-5 h-5 text-purple-500" />
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-[14px] bg-red-500/10">
+                    <TrendingUp className="w-5 h-5 text-red-500" />
+                  </div>
+                  <h3 className="font-semibold text-muted-foreground text-sm uppercase tracking-widest">
+                    Weak Phonemes Heatmap
+                  </h3>
                 </div>
-                <h3 className="font-semibold text-muted-foreground text-sm uppercase tracking-widest">
-                  Recommended Learning Paths
-                </h3>
+                <span className="text-xs font-mono text-zinc-500">Sorted by lowest score</span>
               </div>
 
-              <div className="flex flex-col gap-4">
-                {learningPaths.map((path, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between p-4 rounded-xl border border-border/40 bg-secondary/20 hover:bg-secondary/40 transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
+              {activeHeatmap.length === 0 ? (
+                <div className="text-center py-8 text-zinc-500">
+                  Record more pronunciation entries to compile heatmap data!
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {activeHeatmap.map((item, idx) => {
+                    let colorClass = "bg-red-500/10 text-red-500 border-red-500/20";
+                    if (item.accuracy >= 75) {
+                      colorClass = "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
+                    } else if (item.accuracy >= 55) {
+                      colorClass = "bg-amber-500/10 text-amber-500 border-amber-500/20";
+                    }
+
+                    return (
                       <div
-                        className={`w-12 h-12 rounded-full flex items-center justify-center bg-${path.color}-500/10 text-${path.color}-500`}
+                        key={idx}
+                        className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center transition-all duration-300 hover:scale-[1.03] ${colorClass}`}
                       >
-                        <MapPin size={20} />
+                        <span className="text-2xl font-bold font-mono">/{item.phoneme}/</span>
+                        <span className="text-sm font-black mt-2">{item.accuracy}% Accuracy</span>
+                        <span className="text-[10px] opacity-70 mt-0.5">Practiced: {item.total_practiced}x</span>
                       </div>
-                      <div>
-                        <h4 className="font-bold text-foreground">
-                          {path.title}
-                        </h4>
-                        <p className="text-sm text-muted-foreground">
-                          {path.desc}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 w-1/3">
-                      <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full bg-${path.color}-500 rounded-full`}
-                          style={{ width: `${path.progress}%` }}
-                        />
-                      </div>
-                      <span className="font-bold text-sm">
-                        {path.progress}%
-                      </span>
-                      <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                        <ArrowRight size={18} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            {/* Recent History */}
-            <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm flex-1">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 rounded-[14px] bg-foreground/5">
-                  <History className="w-5 h-5 text-foreground" />
-                </div>
-                <h3 className="font-semibold text-muted-foreground text-sm uppercase tracking-widest">
-                  Recent Recordings
-                </h3>
-              </div>
-
-              <div className="flex flex-col gap-5">
-                {recentRecordings.map((rec, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-bold font-mono text-foreground capitalize">
-                        {rec.word}
-                      </h4>
-                      <p className="text-xs text-muted-foreground">
-                        {rec.date}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-black text-lg text-foreground">
-                        {rec.score}%
-                      </div>
-                      <div className="text-xs font-semibold text-emerald-500">
-                        {rec.improvement}
-                      </div>
-                    </div>
+            {/* Quick Actions / Recommendations */}
+            <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 rounded-[14px] bg-purple-500/10">
+                    <BookOpen className="w-5 h-5 text-purple-500" />
                   </div>
-                ))}
+                  <h3 className="font-semibold text-muted-foreground text-sm uppercase tracking-widest">
+                    Learning Actions
+                  </h3>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <button 
+                    onClick={() => router.push("/drills")}
+                    className="flex items-center justify-between p-4 rounded-xl border border-border/40 bg-secondary/20 hover:bg-secondary/40 text-left transition-colors cursor-pointer group"
+                  >
+                    <div>
+                      <h4 className="font-bold text-foreground">Minimal Pairs Drills</h4>
+                      <p className="text-xs text-muted-foreground">Target specific phoneme swaps</p>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
+                  </button>
+
+                  <button 
+                    onClick={() => router.push("/drills?tab=sr")}
+                    className="flex items-center justify-between p-4 rounded-xl border border-border/40 bg-secondary/20 hover:bg-secondary/40 text-left transition-colors cursor-pointer group"
+                  >
+                    <div>
+                      <h4 className="font-bold text-foreground">Spaced Repetition</h4>
+                      <p className="text-xs text-muted-foreground">Review weak words in intervals</p>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
+                  </button>
+
+                  <button 
+                    onClick={() => router.push("/ai-agent")}
+                    className="flex items-center justify-between p-4 rounded-xl border border-border/40 bg-secondary/20 hover:bg-secondary/40 text-left transition-colors cursor-pointer group"
+                  >
+                    <div>
+                      <h4 className="font-bold text-foreground">AI Agent Interview</h4>
+                      <p className="text-xs text-muted-foreground">Mock dialogue voice partner</p>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </main>
       </div>
     </ProtectedRoute>
-  );
-}
-
-function Activity(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
-    </svg>
   );
 }

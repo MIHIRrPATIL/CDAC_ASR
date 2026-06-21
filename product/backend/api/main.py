@@ -4,11 +4,12 @@ import logging
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 from backend.core.engine import ASREngine
 from api.auth_routes import router as auth_router
+from api.features_routes import router as features_router
 from database import get_db
-from models import AudioEntry, User
+from prisma import Json
+from prisma.models import User
 from auth import get_current_user
 
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Pronunciation Scoring API")
 app.include_router(auth_router)
+app.include_router(features_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,8 +30,13 @@ app.add_middleware(
 engine = None
 
 @app.on_event("startup")
-def startup_event():
+async def startup_event():
     global engine
+    # Initialize connection to Prisma
+    from database import db as prisma_db
+    if not prisma_db.is_connected():
+        await prisma_db.connect()
+        
     # Safe fallback if environment variable isn't set
     model_dir = os.getenv("ASR_MODEL_DIR", "MihirRPatil/nptel-asr-phoneme-v3")
     logger.info(f"Loading ASR Engine with model from {model_dir}")
@@ -38,6 +45,12 @@ def startup_event():
         logger.info("ASR Engine successfully initialized.")
     except Exception as e:
         logger.error(f"Failed to load ASR engine: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from database import db as prisma_db
+    if prisma_db.is_connected():
+        await prisma_db.disconnect()
 
 def generate_actionable_feedback(results: dict) -> list:
     feedback = []
@@ -89,12 +102,117 @@ def generate_actionable_feedback(results: dict) -> list:
         
     return feedback
 
+def transcode_to_wav(input_path: str) -> str:
+    """
+    Transcodes any audio file to 16kHz mono WAV using ffmpeg.
+    Returns the path to the temporary output WAV file.
+    """
+    import subprocess
+    temp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    temp_out_path = temp_out.name
+    temp_out.close()
+    
+    try:
+        # Run ffmpeg to convert input to 16kHz mono PCM 16-bit WAV
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", input_path,
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ac", "1",
+            "-ar", "16000",
+            temp_out_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            logger.error(f"ffmpeg transcoding failed. Stderr: {result.stderr}")
+            return input_path
+            
+        logger.info(f"Successfully transcoded {input_path} to {temp_out_path}")
+        return temp_out_path
+    except Exception as e:
+        logger.error(f"Error during ffmpeg transcoding: {e}")
+        return input_path
+
+def analyze_words_pronunciation(target_word: str, aligned_pairs: list) -> list:
+    """
+    Groups the flat aligned_pairs into individual words based on the expected phonemes.
+    """
+    if not target_word:
+        return []
+        
+    try:
+        from src.g2p.g2p_utils import G2PManager
+        g2p = G2PManager()
+        words = g2p.tokenize(target_word)
+        
+        words_expected_phonemes = []
+        for word in words:
+            words_expected_phonemes.append((word, g2p.convert_word(word)))
+            
+        words_analysis = []
+        for word, expected_phns in words_expected_phonemes:
+            words_analysis.append({
+                "word": word,
+                "phonemes": expected_phns,
+                "aligned_pairs": [],
+                "accuracy": 1.0,
+                "error_stats": {"sub": 0, "ins": 0, "del": 0},
+                "status": "correct"
+            })
+            
+        if not words_analysis:
+            return []
+            
+        curr_word_idx = 0
+        curr_phn_idx = 0
+        
+        for spoken, expected in aligned_pairs:
+            if curr_word_idx >= len(words_analysis):
+                target_word_idx = len(words_analysis) - 1
+                words_analysis[target_word_idx]["aligned_pairs"].append([spoken, expected])
+                continue
+                
+            if expected == "-":
+                words_analysis[curr_word_idx]["aligned_pairs"].append([spoken, expected])
+            else:
+                words_analysis[curr_word_idx]["aligned_pairs"].append([spoken, expected])
+                curr_phn_idx += 1
+                while (curr_word_idx < len(words_analysis) and 
+                       curr_phn_idx >= len(words_analysis[curr_word_idx]["phonemes"])):
+                    curr_word_idx += 1
+                    curr_phn_idx = 0
+                    
+        for word_data in words_analysis:
+            aligned = word_data["aligned_pairs"]
+            correct = sum(1 for p, r in aligned if p == r)
+            total_ref = sum(1 for _, r in aligned if r != '-')
+            
+            accuracy = (correct / total_ref) if total_ref > 0 else 0.0
+            word_data["accuracy"] = accuracy
+            
+            sub = sum(1 for p, r in aligned if p != '-' and r != '-' and p != r)
+            ins = sum(1 for p, r in aligned if r == '-')
+            deletion = sum(1 for p, r in aligned if p == '-')
+            word_data["error_stats"] = {"sub": sub, "ins": ins, "del": deletion}
+            
+            if sub > 0 or ins > 0 or deletion > 0:
+                word_data["status"] = "incorrect"
+            else:
+                word_data["status"] = "correct"
+                
+        return words_analysis
+    except Exception as e:
+        logger.error(f"Error in analyze_words_pronunciation: {e}", exc_info=True)
+        return []
+
 @app.post("/analyze")
 async def analyze_audio(
     audio_file: UploadFile = File(...),
     target_word: str = Form(None),
     target_phonemes: str = Form(None),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     global engine
@@ -104,27 +222,34 @@ async def analyze_audio(
     if not target_word and not target_phonemes:
         raise HTTPException(status_code=400, detail="Must provide either 'target_word' or 'target_phonemes'.")
         
-    # Determine the file suffix (e.g. .wav)
-    suffix = ".wav" if audio_file.filename and audio_file.filename.endswith(".wav") else ""
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    suffix = os.path.splitext(audio_file.filename)[1] if audio_file.filename else ""
+    temp_raw = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    temp_raw_path = temp_raw.name
     
+    temp_wav_path = None
     try:
         content = await audio_file.read()
-        temp_file.write(content)
-        temp_file.close()
+        temp_raw.write(content)
+        temp_raw.close()
         
-        # Bridge to the research pipeline interface
+        temp_wav_path = transcode_to_wav(temp_raw_path)
+        
         results = engine.evaluate(
-            audio_path=temp_file.name,
+            audio_path=temp_wav_path,
             target_word=target_word,
             target_phonemes=target_phonemes
         )
         
-        # Package and decouple metrics vs alignments logic
         scores = {k: v for k, v in results.items() if k not in ['error_stats', 'aligned_pairs']}
+        
+        words_analysis = []
+        if target_word:
+            words_analysis = analyze_words_pronunciation(target_word, results.get('aligned_pairs', []))
+            
         analysis = {
             'error_stats': results.get('error_stats', {}),
-            'aligned_pairs': results.get('aligned_pairs', [])
+            'aligned_pairs': results.get('aligned_pairs', []),
+            'words_analysis': words_analysis
         }
         feedback_list = generate_actionable_feedback(results)
         # --- DB Persistence ---
@@ -159,19 +284,28 @@ async def analyze_audio(
             # Simple average for overall score
             overall_score = (phoneme_score + duration_score + pitch_score + stress_score) / 4.0
 
-            new_entry = AudioEntry(
-                user_id=current_user.id,
-                target_word=target_word or "custom_phonemes",
-                overall_score=overall_score,
-                phoneme_score=phoneme_score,
-                duration_score=duration_score,
-                pitch_score=pitch_score,
-                stress_score=stress_score,
-                pitch_trajectory=scores.get('pitch_trajectory'),
-                phoneme_alignment=analysis.get('aligned_pairs')
-            )
-            db.add(new_entry)
-            db.commit()
+            pitch_trajectory = None
+            pitch_data = scores.get('pitch')
+            if isinstance(pitch_data, dict):
+                pitch_trajectory = pitch_data.get('trajectory')
+            phoneme_alignment = analysis.get('aligned_pairs')
+
+            db_data = {
+                "user": {"connect": {"id": current_user.id}},
+                "targetWord": target_word or "custom_phonemes",
+                "overallScore": float(overall_score),
+                "phonemeScore": float(phoneme_score),
+                "durationScore": float(duration_score),
+                "pitchScore": float(pitch_score),
+                "stressScore": float(stress_score),
+            }
+
+            if pitch_trajectory is not None:
+                db_data["pitchTrajectory"] = Json(pitch_trajectory)
+            if phoneme_alignment is not None:
+                db_data["phonemeAlignment"] = Json(phoneme_alignment)
+
+            await db.audioentry.create(data=db_data)
             logger.info(f"Saved audio entry for user {current_user.id}")
         except Exception as db_err:
             logger.error(f"Failed to save to DB: {db_err}")
@@ -180,7 +314,8 @@ async def analyze_audio(
         return {
             "scores": scores,
             "analysis": analysis,
-            "feedback": feedback_list
+            "feedback": feedback_list,
+            "target_word": target_word or "custom_phonemes"
         }
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -189,5 +324,14 @@ async def analyze_audio(
         raise HTTPException(status_code=500, detail=f"Inference failed internally.")
     finally:
         # Secure cleanup
-        if os.path.exists(temp_file.name):
-            os.remove(temp_file.name)
+        try:
+            if os.path.exists(temp_raw_path):
+                os.remove(temp_raw_path)
+        except Exception as e:
+            logger.error(f"Error removing temp_raw: {e}")
+            
+        try:
+            if temp_wav_path and temp_wav_path != temp_raw_path and os.path.exists(temp_wav_path):
+                os.remove(temp_wav_path)
+        except Exception as e:
+            logger.error(f"Error removing temp_wav: {e}")

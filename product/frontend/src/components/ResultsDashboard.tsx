@@ -10,8 +10,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { PronunciationResponse } from "../services/api";
-import { Activity, Brain, Clock, Mic2, Star } from "lucide-react";
+import { PronunciationResponse, getTTSAudioUrl } from "../services/api";
+import { Activity, Brain, Clock, Mic2, Star, Volume2, Turtle, Sparkles } from "lucide-react";
 
 /* ───── Score Cards ───── */
 function ScoreCards({ scores }: { scores: PronunciationResponse["scores"] }) {
@@ -145,21 +145,64 @@ const IPA_GUIDE: Record<string, { desc: string; example: string }> = {
 function PhonemeAlignment({
   pairs,
   gopDetails,
+  targetWord,
 }: {
   pairs: [string, string][];
   gopDetails?: PronunciationResponse["scores"]["gop_details"];
+  targetWord?: string;
 }) {
   if (!pairs || pairs.length === 0) return null;
 
   let expectedIdx = 0;
 
+  const playReference = (slow: boolean = false) => {
+    if (!targetWord) return;
+    const url = getTTSAudioUrl(targetWord, slow);
+    const audio = new Audio(url);
+    audio.play().catch((err) => console.error("Failed to play reference:", err));
+  };
+
+  const playPhonemeExample = (expectedPhoneme: string) => {
+    const guide = IPA_GUIDE[expectedPhoneme] || IPA_GUIDE[expectedPhoneme.replace(/ː/g, "")] || null;
+    if (!guide) return;
+    // Extract the word from the example (e.g. "p in 'pen'" -> "pen")
+    const match = guide.example.match(/'([^']+)'/);
+    const exampleWord = match ? match[1] : null;
+    if (!exampleWord) return;
+    
+    const url = getTTSAudioUrl(exampleWord, false);
+    const audio = new Audio(url);
+    audio.play().catch((err) => console.error("Failed to play phoneme example:", err));
+  };
+
   return (
     <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm mb-8">
-      <div className="flex items-center gap-2 mb-6">
-        <div className="p-2 rounded-lg bg-orange-500/10">
-          <Mic2 className="w-5 h-5 text-orange-500" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-orange-500/10">
+            <Mic2 className="w-5 h-5 text-orange-500" />
+          </div>
+          <h2 className="text-xl font-bold text-foreground">Phoneme Alignment</h2>
         </div>
-        <h2 className="text-xl font-bold text-foreground">Phoneme Alignment</h2>
+
+        {targetWord && targetWord !== "custom_phonemes" && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => playReference(false)}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-lg shadow-orange-500/20 dark:shadow-none hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
+            >
+              <Volume2 size={16} />
+              Hear Reference
+            </button>
+            <button
+              onClick={() => playReference(true)}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-200 border border-border/60 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
+            >
+              <Turtle size={16} />
+              Hear Slow
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3 overflow-x-auto p-2 pb-4">
@@ -197,6 +240,9 @@ function PhonemeAlignment({
           const guide = isInsertion 
             ? null 
             : IPA_GUIDE[expected] || IPA_GUIDE[expected.replace(/ː/g, "")] || null;
+            
+          const match = guide ? guide.example.match(/'([^']+)'/) : null;
+          const exampleWord = match ? match[1] : null;
 
           return (
             <div
@@ -223,8 +269,20 @@ function PhonemeAlignment({
                     {guide ? (
                       <>
                         <p className="text-[11px] text-foreground leading-snug">{guide.desc}</p>
-                        <div className="mt-1 pt-1 border-t border-white/10 text-[10px] text-muted-foreground">
-                          Example: <span className="text-foreground font-semibold">{guide.example}</span>
+                        <div className="mt-1 pt-1 border-t border-white/10 flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span>Example: <span className="text-foreground font-semibold">'{exampleWord}'</span></span>
+                          {exampleWord && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                playPhonemeExample(expected);
+                              }}
+                              className="p-1 rounded bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-400 transition-colors pointer-events-auto cursor-pointer"
+                              title={`Play word '${exampleWord}'`}
+                            >
+                              <Volume2 size={10} />
+                            </button>
+                          )}
                         </div>
                       </>
                     ) : (
@@ -436,6 +494,122 @@ function ActionableFeedback({ feedback }: { feedback: string[] | null }) {
   );
 }
 
+function ParagraphWordVisualizer({
+  wordsAnalysis,
+}: {
+  wordsAnalysis: NonNullable<PronunciationResponse["analysis"]["words_analysis"]>;
+}) {
+  if (!wordsAnalysis || wordsAnalysis.length === 0) return null;
+
+  const playPhonemeExample = (expectedPhoneme: string) => {
+    const guide = IPA_GUIDE[expectedPhoneme] || IPA_GUIDE[expectedPhoneme.replace(/ː/g, "")] || null;
+    if (!guide) return;
+    const match = guide.example.match(/'([^']+)'/);
+    const exampleWord = match ? match[1] : null;
+    if (!exampleWord) return;
+    
+    const url = getTTSAudioUrl(exampleWord, false);
+    const audio = new Audio(url);
+    audio.play().catch((err) => console.error("Failed to play phoneme example:", err));
+  };
+
+  return (
+    <div className="p-6 bg-white dark:bg-card/60 backdrop-blur-sm rounded-[24px] border border-border/40 shadow-sm mb-6">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="p-2 rounded-lg bg-orange-500/10">
+          <Sparkles className="w-5 h-5 text-orange-500" />
+        </div>
+        <h2 className="text-xl font-bold text-foreground">Interactive Paragraph Analysis</h2>
+      </div>
+
+      <p className="text-xs text-muted-foreground mb-4">
+        Hover over each word to see your phonetic alignments and details of any mispronunciations.
+      </p>
+
+      <div className="flex flex-wrap gap-x-2 gap-y-3 leading-relaxed text-lg font-medium p-4 bg-muted/10 dark:bg-secondary/5 rounded-2xl border border-border/20">
+        {wordsAnalysis.map((item, idx) => {
+          const accuracy = item.accuracy;
+
+          let colorClass = "text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 dark:bg-emerald-500/10 border-emerald-500/20";
+          let badgeText = "Correct";
+          let badgeColor = "bg-emerald-500 text-white";
+
+          if (accuracy < 0.40) {
+            colorClass = "text-rose-600 dark:text-rose-400 bg-rose-500/5 dark:bg-rose-500/10 border-rose-500/20 font-bold underline decoration-rose-500/40 decoration-wavy decoration-2";
+            badgeText = "Critical Error";
+            badgeColor = "bg-rose-500 text-white";
+          } else if (accuracy < 0.70) {
+            colorClass = "text-purple-600 dark:text-purple-400 bg-purple-500/5 dark:bg-purple-500/10 border-purple-500/20 font-bold underline decoration-purple-500/40 decoration-wavy decoration-2";
+            badgeText = "Needs Work";
+            badgeColor = "bg-purple-500 text-white";
+          } else if (accuracy < 1.0) {
+            colorClass = "text-amber-600 dark:text-amber-400 bg-amber-500/5 dark:bg-amber-500/10 border-amber-500/20 font-semibold underline decoration-amber-500/40 decoration-wavy decoration-1";
+            badgeText = "Minor Error";
+            badgeColor = "bg-amber-500 text-black";
+          }
+
+          return (
+            <div
+              key={idx}
+              className={`relative group/word cursor-pointer inline-flex items-center rounded-lg border px-2 py-0.5 transition-all duration-200 hover:scale-105 ${colorClass}`}
+            >
+              {/* Tooltip */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-4 bg-slate-900/95 dark:bg-card/95 border border-border text-foreground rounded-2xl shadow-xl backdrop-blur-md z-50 pointer-events-none opacity-0 group-hover/word:opacity-100 group-hover/word:scale-100 scale-95 transition-all duration-200 origin-bottom flex flex-col gap-3 text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <span className="font-extrabold font-mono text-sm tracking-wide text-foreground capitalize">
+                    {item.word}
+                  </span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${badgeColor}`}>
+                    {badgeText}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+                    <span>Phonetic Target:</span>
+                    <span className="font-mono text-foreground">/{item.phonemes.join(" ")}/</span>
+                  </div>
+
+                  <div className="mt-1">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest block mb-2">Phonetic Alignment</span>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-xs font-mono">
+                      <div className="text-muted-foreground">Target:</div>
+                      <div className="text-muted-foreground">You Said:</div>
+                      {item.aligned_pairs.map((pair, pIdx) => {
+                        const [spoken, expected] = pair;
+                        let textCol = "text-emerald-400";
+                        if (spoken === "-") textCol = "text-orange-400";
+                        else if (expected === "-") textCol = "text-violet-400";
+                        else if (spoken !== expected) textCol = "text-rose-400";
+
+                        return (
+                          <React.Fragment key={pIdx}>
+                            <div className="bg-secondary/40 rounded px-1.5 py-0.5 text-foreground">{expected}</div>
+                            <div className={`bg-secondary/40 rounded px-1.5 py-0.5 font-bold ${textCol}`}>{spoken}</div>
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {accuracy < 1.0 && (
+                  <div className="text-[10px] border-t border-white/10 pt-2 text-muted-foreground">
+                    Accuracy: <span className="font-bold text-foreground">{(accuracy * 100).toFixed(0)}%</span> (
+                    {item.error_stats.sub} Sub, {item.error_stats.del} Del, {item.error_stats.ins} Ins)
+                  </div>
+                )}
+              </div>
+
+              <span>{item.word}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ───── Main Dashboard ───── */
 export default function ResultsDashboard({
   data,
@@ -469,7 +643,10 @@ export default function ResultsDashboard({
         <div className="lg:col-span-2">
           {alignedPairs.length > 0 ? (
             <>
-              <PhonemeAlignment pairs={alignedPairs} gopDetails={gopDetails} />
+              {data?.analysis?.words_analysis && data.analysis.words_analysis.length > 0 && (
+                <ParagraphWordVisualizer wordsAnalysis={data.analysis.words_analysis} />
+              )}
+              <PhonemeAlignment pairs={alignedPairs} gopDetails={gopDetails} targetWord={data?.target_word} />
               <ActionableFeedback feedback={feedback} />
             </>
           ) : (

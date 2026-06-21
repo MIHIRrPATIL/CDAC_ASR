@@ -20,6 +20,8 @@ import {
   BookOpen,
   LogOut,
   LogIn,
+  Sparkles,
+  Bot,
 } from "lucide-react";
 
 // ASR Navigation Items
@@ -27,6 +29,8 @@ const mainNavItems = [
   { label: "Dashboard", href: "/dashboard", icon: BarChart3 },
   { label: "Analyzer", href: "/analyzer", icon: Mic },
   { label: "Paragraphs", href: "/paragraphs", icon: BookOpen },
+  { label: "Drills", href: "/drills", icon: Sparkles },
+  { label: "AI Tutor", href: "/ai-agent", icon: Bot },
 ];
 
 const moreNavItems = [
@@ -120,7 +124,7 @@ export function DynamicNavbar() {
           <div
             onMouseLeave={handleNavLeave}
             onMouseEnter={handleNavEnter}
-            className={`hidden xl:flex items-center relative overflow-hidden border rounded-full backdrop-blur-md transition-all duration-500 shadow-lg w-[700px] ${isCompressed ? "px-2 py-1.5" : "px-4 py-2"} ${!isMoreHovered ? "bg-muted/30 border-primary/20 hover:bg-muted/40 hover:shadow-xl" : "border-orange-400/50 shadow-orange-500/20"}`}
+            className={`hidden xl:flex items-center relative overflow-hidden border rounded-full backdrop-blur-md transition-all duration-500 shadow-lg w-[920px] ${isCompressed ? "px-2 py-1.5" : "px-4 py-2"} ${!isMoreHovered ? "bg-muted/30 border-primary/20 hover:bg-muted/40 hover:shadow-xl" : "border-orange-400/50 shadow-orange-500/20"}`}
           >
             <div
               className={`absolute inset-0 bg-orange-600 transition-transform duration-500 origin-right ${isMoreHovered ? "scale-x-100" : "scale-x-0"}`}

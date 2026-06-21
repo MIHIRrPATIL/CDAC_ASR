@@ -9,22 +9,32 @@ import {
   Sparkles,
   AudioLines,
 } from "lucide-react";
+import WaveformVisualizer from "./WaveformVisualizer";
 
 interface AudioInputProps {
   onAudioSubmit: (file: File, targetWord: string) => void;
   isLoading: boolean;
+  targetWord?: string;
 }
 
 export default function AudioInput({
   onAudioSubmit,
   isLoading,
+  targetWord,
 }: AudioInputProps) {
-  const [word, setWord] = useState("");
+  const [word, setWord] = useState(targetWord || "");
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (targetWord) {
+      setWord(targetWord);
+    }
+  }, [targetWord]);
 
   useEffect(() => {
     if (isRecording) {
@@ -59,12 +69,14 @@ export default function AudioInput({
     if (isRecording) {
       mediaRecorder.current?.stop();
       setIsRecording(false);
+      setStream(null);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const audioStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
-        mediaRecorder.current = new MediaRecorder(stream);
+        setStream(audioStream);
+        mediaRecorder.current = new MediaRecorder(audioStream);
         audioChunks.current = [];
 
         mediaRecorder.current.ondataavailable = (event) => {
@@ -79,13 +91,14 @@ export default function AudioInput({
             type: "audio/wav",
           });
           onAudioSubmit(file, word);
-          stream.getTracks().forEach((track) => track.stop());
+          audioStream.getTracks().forEach((track) => track.stop());
+          setStream(null);
         };
 
         mediaRecorder.current.start();
         setIsRecording(true);
-      } catch {
-        console.error("Microphone access denied.");
+      } catch (err) {
+        console.error("Microphone access denied:", err);
       }
     }
   };
@@ -99,21 +112,32 @@ export default function AudioInput({
         <h2 className="text-xl font-bold text-foreground">Acoustic Input</h2>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 items-end">
-        <div className="w-full md:w-1/2">
-          <label className="block text-sm font-semibold tracking-wider text-muted-foreground uppercase mb-2">
-            Target Word / Phrase
-          </label>
-          <input
-            type="text"
-            value={word}
-            onChange={(e) => setWord(e.target.value)}
-            placeholder="e.g., because, temperature"
-            className="w-full px-4 py-3 bg-white dark:bg-secondary/20 shadow-sm border border-border/60 dark:border-border/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/50 text-foreground transition-all"
-          />
-        </div>
+      <div className="flex flex-col md:flex-row gap-6 items-end">
+        {targetWord ? (
+          <div className="w-full md:w-1/3 pb-1">
+            <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Target Practice Word
+            </span>
+            <div className="text-2xl font-bold text-orange-500 dark:text-orange-400 mt-1 tracking-wide bg-orange-500/5 dark:bg-orange-500/10 border border-orange-500/20 rounded-xl px-4 py-2.5">
+              {targetWord}
+            </div>
+          </div>
+        ) : (
+          <div className="w-full md:w-1/2">
+            <label className="block text-sm font-semibold tracking-wider text-muted-foreground uppercase mb-2">
+              Target Word / Phrase
+            </label>
+            <input
+              type="text"
+              value={word}
+              onChange={(e) => setWord(e.target.value)}
+              placeholder="e.g., because, temperature"
+              className="w-full px-4 py-3 bg-white dark:bg-secondary/20 shadow-sm border border-border/60 dark:border-border/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/50 text-foreground transition-all"
+            />
+          </div>
+        )}
 
-        <div className="flex flex-col gap-3 w-full md:w-1/2">
+        <div className={`flex flex-col gap-3 w-full ${targetWord ? "md:w-2/3" : "md:w-1/2"}`}>
           <div className="flex flex-col xl:flex-row gap-3">
             <button
               onClick={toggleRecording}
@@ -148,30 +172,21 @@ export default function AudioInput({
         </div>
       </div>
 
-      {!word && (
+      {!word && !targetWord && (
         <p className="text-xs text-orange-600/80 dark:text-orange-400/80 font-medium tracking-wide">
           Enter a target word to enable audio recording and upload.
         </p>
       )}
 
       {isRecording && (
-        <div className="flex items-center gap-4 py-2 px-4 rounded-xl bg-red-50 border border-red-100 dark:bg-red-950/20 dark:border-red-900/30 animate-in fade-in slide-in-from-top-2">
-          <div className="flex items-center gap-1.5 h-6">
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div
-                key={i}
-                className="w-1.5 bg-red-500 rounded-full animate-pulse"
-                style={{
-                  height: `${Math.max(20, Math.random() * 100)}%`,
-                  animationDuration: `${0.5 + Math.random() * 0.5}s`,
-                  animationDelay: `${i * 0.1}s`,
-                }}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-2 font-mono text-sm font-semibold tracking-wider text-red-600 dark:text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            {formatTime(recordingTime)} / 0:15
+        <div className="flex flex-col gap-3 py-4 px-4 rounded-xl bg-secondary/10 border border-border/40 animate-in fade-in slide-in-from-top-2">
+          <WaveformVisualizer stream={stream} isRecording={isRecording} />
+          <div className="flex items-center justify-between font-mono text-sm font-semibold tracking-wider text-orange-500">
+            <span className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              RECORDING ACTIVE
+            </span>
+            <span>{formatTime(recordingTime)} / 0:15</span>
           </div>
         </div>
       )}

@@ -4,9 +4,8 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import bcrypt
-from sqlalchemy.orm import Session
 from database import get_db
-from models import User
+from prisma.models import User
 
 # --- Config ---
 SECRET_KEY = os.getenv("JWT_SECRET", "cdac-asr-super-secret-key-change-in-prod")
@@ -51,9 +50,9 @@ def decode_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ) -> User:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -61,7 +60,7 @@ def get_current_user(
     payload = decode_token(credentials.credentials)
     user_id = payload.get("sub")
     
-    user = db.query(User).filter(User.id == user_id).first()
+    user = await db.user.find_unique(where={"id": user_id})
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
     return user
