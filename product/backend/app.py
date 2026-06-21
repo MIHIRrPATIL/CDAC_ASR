@@ -2,7 +2,11 @@ import uvicorn
 import os
 import sys
 
-# 1. Automatically handle the Python Path (Find project root and product root)
+# 1. Set a default Postgres URL if none is present to satisfy Prisma validation on startup
+if not os.environ.get("DATABASE_URL") or not os.environ.get("DATABASE_URL").startswith(("postgresql://", "postgres://")):
+    os.environ["DATABASE_URL"] = "postgresql://postgres:postgres@localhost:5432/postgres"
+
+# 2. Automatically handle the Python Path (Find project root and product root)
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 product_dir = os.path.dirname(backend_dir)
 project_root = os.path.dirname(product_dir)

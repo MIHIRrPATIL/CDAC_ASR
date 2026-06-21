@@ -43,7 +43,15 @@ async def startup_event():
     # Initialize connection to Prisma
     from database import db as prisma_db
     if not prisma_db.is_connected():
-        await prisma_db.connect()
+        try:
+            await prisma_db.connect()
+            logger.info("Prisma Database successfully connected.")
+        except Exception as e:
+            logger.error(
+                "DATABASE CONNECTION ERROR: Failed to connect to database. "
+                "The application will continue starting up in offline mode, but database-dependent features (e.g. auth, scoring history) will be unavailable. "
+                f"Error details: {e}"
+            )
         
     # Safe fallback if environment variable isn't set
     model_dir = os.getenv("ASR_MODEL_DIR", "MihirRPatil/nptel-asr-phoneme-v3")
