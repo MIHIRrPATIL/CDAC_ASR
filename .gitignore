@@ -63,3 +63,4 @@ indian-accent-dataset/
 # Backend audio caches
 product/backend/cache/tts/
 product/backend/cache/tts/*.mp3
+product/backend/cache/
