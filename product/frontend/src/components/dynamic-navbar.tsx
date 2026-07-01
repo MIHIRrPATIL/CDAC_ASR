@@ -117,7 +117,7 @@ export function DynamicNavbar() {
                 color: isDashboardRoute ? "var(--foreground)" : "currentColor",
               }}
             >
-              LinguaScore
+              VoiceScore
             </span>
           </Link>
 

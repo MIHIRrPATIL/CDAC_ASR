@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { CustomCursor } from "@/components/custom-cursor";
+
 import { GrainOverlay } from "@/components/grain-overlay";
 import { MagneticButton } from "@/components/magnetic-button";
 import EtherBackground from "@/components/EtherBackground";
@@ -24,7 +24,7 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen w-full overflow-y-auto bg-black text-white selection:bg-orange-500/30 font-sans">
-      <CustomCursor />
+
       <GrainOverlay />
       <EtherBackground />
 

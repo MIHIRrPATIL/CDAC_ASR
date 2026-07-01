@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ProtectedRoute } from "../../components/protected-route";
-import { CustomCursor } from "../../components/custom-cursor";
+
 import { GrainOverlay } from "../../components/grain-overlay";
 import { getSRQueue, addSRCard, reviewSRCard, analyzeAudio, generateAIDrills, SpacedRepetitionItem, AIDrillResponse, getTTSAudioUrl } from "../../services/api";
 import {
@@ -163,7 +163,7 @@ export default function DrillsPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-background text-foreground">
-        <CustomCursor />
+
         <GrainOverlay />
 
         <main className="pt-32 pb-20 px-6 sm:px-12 max-w-6xl mx-auto">

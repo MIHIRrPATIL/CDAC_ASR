@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { ProtectedRoute } from "../../components/protected-route";
-import { CustomCursor } from "../../components/custom-cursor";
+
 import { GrainOverlay } from "../../components/grain-overlay";
 import { postRoleplay, startRoleplay, analyzeAudio, getTTSAudioUrl, RoleplayResponse } from "../../services/api";
 import {
@@ -291,7 +291,7 @@ export default function AIAgentPage() {
     return (
       <ProtectedRoute>
         <div className="min-h-screen bg-background text-foreground">
-          <CustomCursor />
+
           <GrainOverlay />
           <main className="pt-32 pb-20 px-6 sm:px-12 max-w-5xl mx-auto">
             <section className="mb-10 text-center">
@@ -389,7 +389,6 @@ export default function AIAgentPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-background text-foreground">
-        <CustomCursor />
         <GrainOverlay />
 
         <style dangerouslySetInnerHTML={{ __html: `

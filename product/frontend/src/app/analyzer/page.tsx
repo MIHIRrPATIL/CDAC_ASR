@@ -5,7 +5,7 @@ import AudioInput from "../../components/AudioInput";
 import ResultsDashboard from "../../components/ResultsDashboard";
 import { analyzeAudio, PronunciationResponse } from "../../services/api";
 import { Sparkles, Brain, Award, Activity } from "lucide-react";
-import { CustomCursor } from "../../components/custom-cursor";
+
 import { ProtectedRoute } from "../../components/protected-route";
 
 export default function AnalyzerPage() {
@@ -48,7 +48,7 @@ export default function AnalyzerPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-background pt-28 pb-20">
-        <CustomCursor />
+
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header Section (NitiAI Dashboard Style) */}
           <section className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

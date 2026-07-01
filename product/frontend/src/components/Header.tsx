@@ -34,7 +34,7 @@ export default function Header() {
             letterSpacing: "-0.01em",
           }}
         >
-          Pronunciation Analyzer
+          VoiceScore
         </h1>
       </div>
       <p

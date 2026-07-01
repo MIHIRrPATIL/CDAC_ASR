@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { CustomCursor } from "../../components/custom-cursor";
+
 import { GrainOverlay } from "../../components/grain-overlay";
 import { ProtectedRoute } from "../../components/protected-route";
 import { useRouter } from "next/navigation";
@@ -94,7 +94,7 @@ export default function DashboardPage() {
     return (
       <ProtectedRoute>
         <div className="min-h-screen bg-background flex items-center justify-center">
-          <CustomCursor />
+
           <GrainOverlay />
           <div className="flex flex-col items-center gap-4 text-center">
             <div className="w-12 h-12 rounded-full border-4 border-orange-500/20 border-t-orange-500 animate-spin" />
@@ -112,7 +112,7 @@ export default function DashboardPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-background text-foreground">
-        <CustomCursor />
+
         <GrainOverlay />
 
         <main className="pt-32 pb-20 px-6 sm:px-12 max-w-7xl mx-auto">

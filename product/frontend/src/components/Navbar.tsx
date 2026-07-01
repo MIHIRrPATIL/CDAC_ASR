@@ -50,7 +50,7 @@ export default function Navbar() {
             letterSpacing: "-0.02em",
           }}
         >
-          LinguaScore
+          VoiceScore
         </span>
       </Link>
 
