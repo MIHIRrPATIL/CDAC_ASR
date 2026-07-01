@@ -26,17 +26,32 @@ class LoginRequest(BaseModel):
 # ──── Register ────
 @router.post("/register")
 async def register(req: RegisterRequest, db = Depends(get_db)):
-    existing = await db.user.find_unique(where={"email": req.email})
+    try:
+        existing = await db.user.find_unique(where={"email": req.email})
+    except Exception as e:
+        logger.error(f"Database error during registration lookup: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Database is temporarily unavailable. Please try again later."
+        )
+
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    user = await db.user.create(
-        data={
-            "email": req.email,
-            "name": req.username,
-            "passwordHash": hash_password(req.password),
-        }
-    )
+    try:
+        user = await db.user.create(
+            data={
+                "email": req.email,
+                "name": req.username,
+                "passwordHash": hash_password(req.password),
+            }
+        )
+    except Exception as e:
+        logger.error(f"Database error during user creation: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Database is temporarily unavailable. Please try again later."
+        )
 
     token = create_access_token(str(user.id), user.email)
     return {
@@ -52,7 +67,15 @@ async def register(req: RegisterRequest, db = Depends(get_db)):
 # ──── Login ────
 @router.post("/login")
 async def login(req: LoginRequest, db = Depends(get_db)):
-    user = await db.user.find_unique(where={"email": req.email})
+    try:
+        user = await db.user.find_unique(where={"email": req.email})
+    except Exception as e:
+        logger.error(f"Database error during login: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Database is temporarily unavailable. Please try again later."
+        )
+
     if not user or not verify_password(req.password, user.passwordHash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
@@ -77,3 +100,4 @@ async def me(user: User = Depends(get_current_user)):
             "email": user.email,
         }
     }
+
