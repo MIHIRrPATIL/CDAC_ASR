@@ -24,13 +24,19 @@ import {
   Bot,
 } from "lucide-react";
 
-// ASR Navigation Items
 const mainNavItems = [
   { label: "Dashboard", href: "/dashboard", icon: BarChart3 },
   { label: "Analyzer", href: "/analyzer", icon: Mic },
   { label: "Paragraphs", href: "/paragraphs", icon: BookOpen },
   { label: "Drills", href: "/drills", icon: Sparkles },
   { label: "AI Tutor", href: "/ai-agent", icon: Bot },
+];
+
+const guestNavItems = [
+  { label: "Features", href: "/#features", icon: Sparkles },
+  { label: "How It Works", href: "/#how-it-works", icon: Info },
+  { label: "Architecture", href: "/#tech", icon: Server },
+  { label: "Try Scoring", href: "/auth", icon: Mic },
 ];
 
 const moreNavItems = [
@@ -130,10 +136,10 @@ export function DynamicNavbar() {
               className={`absolute inset-0 bg-orange-600 transition-transform duration-500 origin-right ${isMoreHovered ? "scale-x-100" : "scale-x-0"}`}
             />
 
-            <div
+             <div
               className={`flex items-center flex-1 transition-all duration-300 ${isMoreHovered ? "opacity-0 translate-x-4 pointer-events-none absolute inset-y-0 left-0 w-full" : "opacity-100 translate-x-0 relative w-full"}`}
             >
-              {mainNavItems.map((item) => {
+              {(isAuthenticated ? mainNavItems : guestNavItems).map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
                 return (
@@ -159,62 +165,66 @@ export function DynamicNavbar() {
               })}
             </div>
 
-            <div
-              className={`flex items-center flex-1 transition-all duration-300 ${!isMoreHovered ? "opacity-0 -translate-x-4 pointer-events-none absolute inset-y-0 left-0 w-full" : "opacity-100 translate-x-0 relative w-full"}`}
-            >
-              {moreNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex-1 px-1"
+            {isAuthenticated && (
+              <>
+                <div
+                  className={`flex items-center flex-1 transition-all duration-300 ${!isMoreHovered ? "opacity-0 -translate-x-4 pointer-events-none absolute inset-y-0 left-0 w-full" : "opacity-100 translate-x-0 relative w-full"}`}
+                >
+                  {moreNavItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = pathname === item.href;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className="flex-1 px-1"
+                      >
+                        <div
+                          className={`flex items-center justify-center gap-2 rounded-full font-medium transition-all duration-300 z-10 relative w-full ${isCompressed ? "text-xs px-2 py-1" : "text-sm px-3 py-1.5"} ${isActive ? "bg-white text-orange-600 shadow-md" : "text-white/80 hover:text-white hover:bg-white/10"}`}
+                        >
+                          <Icon
+                            className={`shrink-0 transition-all ${isCompressed ? "w-3 h-3" : "w-4 h-4"}`}
+                          />
+                          <span
+                            className={`transition-all ${isCompressed ? "text-xs" : "text-sm"}`}
+                          >
+                            {item.label}
+                          </span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                <div
+                  className={`h-4 w-px mx-4 transition-colors duration-300 z-10 relative ${isMoreHovered ? "bg-white/30" : "bg-foreground/20"}`}
+                />
+
+                <div
+                  className="flex items-center z-10 relative"
+                  onMouseEnter={handleMoreEnter}
+                >
+                  <div
+                    className={`flex items-center gap-2 rounded-full font-medium transition-all duration-300 cursor-pointer ${isCompressed ? "text-xs px-2 py-1" : "text-sm px-3 py-1.5"} ${isMoreHovered ? "text-white bg-white/10" : isDashboardRoute ? "text-foreground/80 hover:text-foreground hover:bg-foreground/10" : "text-muted-foreground hover:text-foreground hover:bg-white/20"}`}
                   >
-                    <div
-                      className={`flex items-center justify-center gap-2 rounded-full font-medium transition-all duration-300 z-10 relative w-full ${isCompressed ? "text-xs px-2 py-1" : "text-sm px-3 py-1.5"} ${isActive ? "bg-white text-orange-600 shadow-md" : "text-white/80 hover:text-white hover:bg-white/10"}`}
-                    >
-                      <Icon
+                    {isMoreHovered ? (
+                      <ArrowLeft
                         className={`shrink-0 transition-all ${isCompressed ? "w-3 h-3" : "w-4 h-4"}`}
                       />
-                      <span
-                        className={`transition-all ${isCompressed ? "text-xs" : "text-sm"}`}
-                      >
-                        {item.label}
-                      </span>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-
-            <div
-              className={`h-4 w-px mx-4 transition-colors duration-300 z-10 relative ${isMoreHovered ? "bg-white/30" : "bg-foreground/20"}`}
-            />
-
-            <div
-              className="flex items-center z-10 relative"
-              onMouseEnter={handleMoreEnter}
-            >
-              <div
-                className={`flex items-center gap-2 rounded-full font-medium transition-all duration-300 cursor-pointer ${isCompressed ? "text-xs px-2 py-1" : "text-sm px-3 py-1.5"} ${isMoreHovered ? "text-white bg-white/10" : isDashboardRoute ? "text-foreground/80 hover:text-foreground hover:bg-foreground/10" : "text-muted-foreground hover:text-foreground hover:bg-white/20"}`}
-              >
-                {isMoreHovered ? (
-                  <ArrowLeft
-                    className={`shrink-0 transition-all ${isCompressed ? "w-3 h-3" : "w-4 h-4"}`}
-                  />
-                ) : (
-                  <MoreHorizontal
-                    className={`shrink-0 transition-all ${isCompressed ? "w-3 h-3" : "w-4 h-4"}`}
-                  />
-                )}
-                <span
-                  className={`hidden lg:inline transition-all ${isCompressed ? "text-xs" : "text-sm"}`}
-                >
-                  {isMoreHovered ? "Back" : "More"}
-                </span>
-              </div>
-            </div>
+                    ) : (
+                      <MoreHorizontal
+                        className={`shrink-0 transition-all ${isCompressed ? "w-3 h-3" : "w-4 h-4"}`}
+                      />
+                    )}
+                    <span
+                      className={`hidden lg:inline transition-all ${isCompressed ? "text-xs" : "text-sm"}`}
+                    >
+                      {isMoreHovered ? "Back" : "More"}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
