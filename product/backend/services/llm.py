@@ -343,3 +343,58 @@ async def generate_custom_drills(contrast_prompt: str = None) -> dict:
             {"word1": "right", "word2": "light"}
         ]
     }
+
+async def simplify_pronunciation_feedback(feedback_list: list[str]) -> str:
+    """
+    Takes raw technical feedback lines and uses an LLM to generate a warm, 
+    friendly, and easy-to-understand explanation of the pronunciation mistakes.
+    """
+    if not feedback_list:
+        return "Your pronunciation is excellent! No mistakes detected."
+        
+    feedback_str = "\n".join(feedback_list)
+    
+    prompt = (
+        f"You are a friendly, encouraging speech therapist and pronunciation coach.\n"
+        f"The user has received the following raw, technical phoneme analysis feedback on their speech:\n"
+        f"\"\"\"\n{feedback_str}\n\"\"\"\n\n"
+        f"Rewrite this technical feedback into a warm, simple, and encouraging coaching note (1-3 sentences).\n"
+        f"Instead of saying technical index numbers (like 'at position 3'), explain the target sound and what the user should try to do differently in a simple, practical way.\n"
+        f"Do not mention position numbers or index numbers. Keep it very conversational and helpful.\n"
+        f"Return ONLY the rewritten explanation. No intro, no quotes, no extra text."
+    )
+    
+    payload = {
+        "model": DEFAULT_MODEL,
+        "messages": [
+            {"role": "system", "content": "You are a helpful speech therapist assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+    }
+    
+    BACKUP_MODELS = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "liquid/lfm-2.5-1.2b-instruct:free",
+        "google/gemma-2-9b-it:free"
+    ]
+    
+    for model in [DEFAULT_MODEL] + BACKUP_MODELS:
+        payload["model"] = model
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(OPENROUTER_URL, json=payload, headers=get_headers())
+                if response.status_code == 200:
+                    data = response.json()
+                    text = data["choices"][0]["message"]["content"].strip()
+                    # Clean up quotes
+                    if text.startswith('"') and text.endswith('"'):
+                        text = text[1:-1]
+                    return text
+                else:
+                    logger.warning(f"OpenRouter feedback simplification error ({model}): {response.status_code}")
+        except Exception as e:
+            logger.error(f"Failed to query OpenRouter for feedback simplification ({model}): {e}")
+            
+    # Simple rule-based fallback if LLM is entirely down
+    return "Keep practicing! Focus on clean transitions and try to give vowels their full duration without rushing."

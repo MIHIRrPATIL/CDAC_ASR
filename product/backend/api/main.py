@@ -259,6 +259,17 @@ async def analyze_audio(
             'words_analysis': words_analysis
         }
         feedback_list = generate_actionable_feedback(results)
+        # --- Simplify feedback using LLM ---
+        try:
+            from backend.services.llm import simplify_pronunciation_feedback
+            if len(feedback_list) > 1:
+                summary = feedback_list[0]
+                tips = feedback_list[1:]
+                simplified_text = await simplify_pronunciation_feedback(tips)
+                # Put the simplified explanation as the first tip, followed by technical details
+                feedback_list = [summary, f"• {simplified_text}"] + tips
+        except Exception as llm_err:
+            logger.error(f"Failed to simplify feedback: {llm_err}")
         # --- DB Persistence ---
         try:
             # Extract scores for DB using the correct keys from research/ScoreCalcs.py
