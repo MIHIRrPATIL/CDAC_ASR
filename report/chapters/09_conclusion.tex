@@ -1,0 +1,19 @@
+\chapter{Conclusion and Future Scope}
+
+\section{Conclusion}
+The VoiceScore project successfully bridged the gap between advanced deep learning research and practical, consumer-facing application development. By replacing generic, culturally biased dictation engines with a specialized, phoneme-level diagnostic system, VoiceScore provides non-native Indian English speakers with the objective, granular feedback necessary to overcome mother-tongue influence (MTI).
+
+The integration of a self-supervised Wav2Vec2 backbone with a Contrastive CTC head proved highly effective for acoustic modeling in a low-resource phonetic space. The development of the 133,737-word \textit{Clear Indian English Detailed IPA Lexicon} was a critical milestone, demonstrating that algorithmic application of context-sensitive phonological rules (such as retroflexion and palatalization) can seamlessly map standard American transcriptions to the unique acoustic signature of Indian English.
+
+The progression from the baseline model to the production v3 model—achieving a validation Mean PER of 14.17\% and eliminating Out-of-Vocabulary errors—highlights the importance of multi-accented data balancing and rigorous token encoding hygiene. Furthermore, resolving complex engineering bottlenecks (including shared memory limits, C-level segmentation faults, and database resiliency) ensured the robust deployment of the split-architecture web application.
+
+Ultimately, VoiceScore stands as a comprehensive solution, combining interactive visual heatmaps, AI-driven conversational tutors, and spaced repetition drills to offer a holistic and stress-free pronunciation coaching experience.
+
+\section{Future Scope}
+While the current architecture is production-ready, several avenues for future research and optimization remain:
+
+\begin{enumerate}
+    \item \textbf{Regional MTI Profiling:} Future iterations could implement dynamic error clustering to predict the speaker's specific primary language (e.g., differentiating between Bengali MTI and Tamil MTI). This would allow the AI tutor to suggest hyper-personalized coaching guidelines tailored to the user's specific regional background.
+    \item \textbf{On-Device WASM Inference:} Currently, the 96-million-parameter Wav2Vec2 model runs on a centralized Hugging Face backend. Porting the model to WebAssembly (WASM) utilizing ONNX Runtime Web would allow the inference engine to run entirely within the user's browser. This would eliminate network latency, ensure total data privacy, and drive backend server costs to zero.
+    \item \textbf{Advanced Intonation Contouring:} Expanding the GoP metrics to include dynamic pitch trajectory mapping would allow the system to compare the user's sentence-level prosody directly against reference models, providing deeper feedback on rhythm and emotional inflection.
+\end{enumerate}

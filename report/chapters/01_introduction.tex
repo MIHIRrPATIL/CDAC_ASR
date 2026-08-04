@@ -1,0 +1,29 @@
+\chapter{Introduction}
+
+\section{Background and Motivation}
+The proliferation of digital communication and the increasingly global nature of modern enterprises have positioned English as the dominant lingua franca of the professional world. However, for the vast majority of non-native English speakers, the acquisition of a new language is heavily influenced by the phonological rules of their native tongue. This phenomenon, known as Mother-Tongue Influence (MTI), dictates how speakers articulate phonemes, apply stress, and manage sentence-level intonation. 
+
+In India, which boasts one of the largest English-speaking populations globally, regional linguistic diversity introduces unique phonetic traits into spoken English. Indian English is characterized by the use of retroflex consonants (e.g., /ʈ/ and /ɖ/ in place of alveolar /t/ and /d/), dental fricative substitutions, and unique vowel length variations. While these features are entirely natural and well-understood within the subcontinent, they can pose comprehension challenges in international contexts. 
+
+Consequently, there is a significant demand for Computer-Assisted Pronunciation Training (CAPT) systems capable of providing objective, localized feedback. Unfortunately, traditional generalized Automatic Speech Recognition (ASR) engines, such as those powering commercial virtual assistants or dictation software, are heavily biased. Trained predominantly on vast corpora of Western (US and UK) accents, these models possess underlying acoustic models that expect alveolar stops and specific diphthongs. When presented with Indian English phonology, these generic ASR models frequently mistranscribe the speech or unfairly penalize the speaker, leading to high Word Error Rates (WER) and diminishing the user's confidence.
+
+\section{The Need for Specialized Diagnostic Systems}
+Generic ASR systems operate as "black boxes" that convert speech to text. If a speaker mispronounces a word, the ASR might output a completely different word or fail entirely. For language learners, this binary success/failure outcome is pedagogically insufficient. A learner does not merely need to know that a word was incorrect; they require granular diagnostic feedback indicating \textit{why} it was incorrect and \textit{which specific sound} failed.
+
+This necessitates a paradigm shift from standard speech-to-text to phoneme-level acoustic diagnostics. A specialized diagnostic system must be capable of forced alignment—time-aligning the input audio to an expected target transcription—and scoring the acoustic quality of each individual phoneme based on a Goodness of Pronunciation (GoP) metric. 
+
+Furthermore, to prevent unfair penalization of natural regional accents, the underlying acoustic model must be explicitly trained on, and its phonetic vocabulary tailored to, the specific phonetic inventory of the target demographic (in this case, Indian English).
+
+\section{Project Objectives}
+The primary objective of the VoiceScore project was to architect and deploy an end-to-end AI-powered pronunciation coach tailored specifically for Indian English. 
+
+The core objectives were defined as follows:
+\begin{itemize}
+    \item \textbf{Acoustic Modeling:} To fine-tune a self-supervised Wav2Vec2 backbone on a diverse, multi-accented Indian English dataset to create a robust acoustic feature extractor.
+    \item \textbf{Phonological Mapping:} To develop a comprehensive, context-sensitive lexicon (exceeding 100,000 words) that maps standard American English transcriptions to a narrow, specialized Indian English International Phonetic Alphabet (IPA) inventory.
+    \item \textbf{Diagnostic Scoring:} To implement a Contrastive Connectionist Temporal Classification (CTC) head capable of generating frame-level phoneme probabilities for accurate Goodness of Pronunciation (GoP) scoring.
+    \item \textbf{Interactive Deployment:} To build a low-latency, full-stack web application featuring real-time visualization, spaced repetition drills, and an LLM-driven conversational AI tutor to provide holistic pronunciation practice.
+\end{itemize}
+
+\section{Report Organization}
+This report details the complete lifecycle of the VoiceScore project. Chapter 2 reviews the foundational literature concerning Wav2Vec2 and GoP. Chapter 3 dissects the technical system architecture, including the Contrastive CTC embedding space. Chapter 4 explores the generation of the Indian English lexicon and the intricate phonological rules applied. Chapter 5 details the training methodology across two distinct sessions. Chapter 6 presents the evaluation metrics and validation results. Chapter 7 outlines the critical engineering challenges faced during development and their respective resolutions. Finally, Chapter 8 describes the full-stack deployment architecture, followed by concluding remarks and future scope in Chapter 9.

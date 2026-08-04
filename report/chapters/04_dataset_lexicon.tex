@@ -1,0 +1,72 @@
+\chapter{Dataset and Lexicon Generation}
+
+The foundation of any high-precision phonetic ASR system lies in its vocabulary mapping. A critical undertaking in this project was the generation of the \textbf{Clear Indian English Detailed IPA Lexicon}, an exhaustive dictionary comprising 133,738 entries mapped specifically to Indian English phonology.
+
+\section{Lexicon Generation Architecture}
+The lexicon generation pipeline leverages the standard CMUdict (containing over 134,000 words transcribed in American English ARPAbet format) and applies context-sensitive phonological transformations to match the narrow acoustic features of Indian English.
+
+The pipeline utilizes an NLTK-based CMUdict parser feeding into a custom \textit{Sliding Window Phonetic Converter}. This converter examines each ARPAbet token alongside its upcoming context (lookahead) to determine the correct phonetic realization based on hardcoded phonological rules. This approach of mapping base tokens to Indian English targets draws inspiration from specialized Indian English dictionaries like the IE-CPS Lexicon \cite{pandey2019iecps}. Finally, an Override Resolver merges the generated pronunciations with a curated gold-standard dictionary of 2,780 common words, originally generated via tools akin to the Montreal Forced Aligner (MFA) \cite{mcauliffe17_interspeech}, to ensure maximum accuracy.
+
+\begin{table}[h]
+    \centering
+    \small
+    \caption{Comparative Overview of Dictionary and Phonetic Inventory Iterations}
+    \label{tab:dictionary_comparison}
+    \begin{tabular}{p{3.5cm} p{3.5cm} p{3.5cm} p{4.0cm}}
+        \toprule
+        \textbf{Feature / Metric} & \textbf{Session 1 Baseline} & \textbf{Gold-Standard Subset} & \textbf{Clear Indian English Lexicon (v3)} \\
+        \midrule
+        Total Vocabulary Size & 2,780 words & 2,780 words & \textbf{133,738 entries} \\
+        Phonetic Notation & Corrupted CP1252 & Standard IPA & \textbf{Clean UTF-8 IPA} \\
+        Active Token Vocabulary & 65 tokens (with noise) & 58 tokens & \textbf{60 clean IPA tokens} \\
+        Phonological Modeling & Static ARPAbet & Manual Alignment & \textbf{Context-Sensitive Rules} \\
+        OOV Handling & None (Catastrophic Drop) & None & \textbf{Neural G2P Fallback (\texttt{g2p-en})} \\
+        Encoding Integrity & Windows-1252 / Mojibake & Clean UTF-8 & \textbf{Purged UTF-8 Unicode} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{Context-Sensitive Phonological Rules}
+The Sliding Window Converter implements several intricate phonetic rules essential for capturing the authentic sound of Indian English.
+
+\subsection{Consonant Retroflexion \& Dentalization}
+Standard alveolar stops are universally shifted to retroflex stops, which are articulated by curling the tongue back against the hard palate:
+\begin{itemize}
+    \item Alveolar plosive /t/ $\rightarrow$ Retroflex /ʈ/.
+    \item Alveolar plosive /d/ $\rightarrow$ Retroflex /ɖ/.
+\end{itemize}
+Similarly, dental fricatives are replaced with dental plosives:
+\begin{itemize}
+    \item Voiced dental fricative /ð/ $\rightarrow$ Dental plosive /d̪/.
+    \item Voiceless dental fricative /θ/ $\rightarrow$ Dental plosive /t̪/.
+\end{itemize}
+
+\subsection{Context-Sensitive Palatalization}
+Consonants undergo palatalization (co-articulation by raising the tongue toward the hard palate) when immediately followed by a front vowel or palatal glide (e.g., /iː/, /ɪ/, /eɪ/, /j/):
+\begin{itemize}
+    \item \textbf{Stops:} /b/ $\rightarrow$ /bʲ/, /p/ $\rightarrow$ /pʲ/, /ʈ/ $\rightarrow$ /ʈʲ/. For example, the word "keep" becomes /c iː pʲ/.
+    \item \textbf{Nasals and Laterals:} /l/ $\rightarrow$ /ʎ/ (palatal lateral approximant), /n/ $\rightarrow$ /ɲ/ (palatal nasal).
+    \item \textbf{Glottal Fricative:} /h/ $\rightarrow$ /ç/ (voiceless palatal fricative, as in "here").
+\end{itemize}
+
+\subsection{Palatal Stop Shift}
+Velar plosives shift forward to palatal stops when followed by front vowels or glides:
+\begin{itemize}
+    \item /k/ $\rightarrow$ /c/ (e.g., "keep" /c iː p/).
+    \item /g/ $\rightarrow$ /ɟ/ (e.g., "give" /ɟ ɪ ʋ/).
+\end{itemize}
+
+\subsection{Labialization}
+When velar stops are followed by the labial-velar glide /w/, they are co-articulated as labialized stops, absorbing the /w/ token entirely:
+\begin{itemize}
+    \item /k/ + /w/ $\rightarrow$ /cʷ/ (before front vowels) or /kʷ/ (elsewhere).
+    \item /g/ + /w/ $\rightarrow$ /ɟʷ/ (before front vowels) or /gʷ/ (elsewhere).
+\end{itemize}
+
+\section{Double-Encoding (Mojibake) Resolution}
+During the integration of the gold-standard reference dictionary, a significant data corruption issue was identified. The original 2,780-word list contained double-encoded characters where UTF-8 bytes had been improperly decoded as CP1252 (Windows-1252). For example, the schwa /ə/ was stored as `É™`, and the retroflex /ʈ/ was stored as `Êˆ`.
+
+To ensure compatibility with the clean UTF-8 IPA inventory defined in the Wav2Vec2 model's \texttt{vocab.json}, a dedicated Mojibake Restorer script was implemented. This script recursively mapped and cleaned the corrupted CP1252 strings back into pure UTF-8 Unicode characters prior to the final dictionary merge, eliminating critical tokenization errors during training.
+
+\section{Grapheme-to-Phoneme (G2P) Fallback}
+While the dictionary contains 133,738 entries, user input during real-time web application usage may include Out-of-Vocabulary (OOV) terms, such as novel names or acronyms. To handle OOVs gracefully, the \texttt{G2PManager} relies on the static lexicon for known words but seamlessly falls back to a neural G2P model (\texttt{g2p-en}) utilizing Recurrent Neural Network paradigms \cite{rao2015g2p} to extrapolate phonetic guesses based on English spelling patterns for unknown words. This hybrid approach guarantees uninterrupted execution without sacrificing the precision of the curated lexicon.

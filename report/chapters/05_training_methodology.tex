@@ -1,0 +1,63 @@
+\chapter{Training Methodology}
+
+The acoustic modeling and fine-tuning of the Wav2Vec2 backbone evolved over two distinct training sessions. Each session represented a major iteration in data diversity, vocabulary coverage, and acoustic robustness. The model was trained on NVIDIA RTX A6000 hardware (48GB VRAM), utilizing gradient accumulation to manage large batch sizes.
+
+\section{Session 1: The Baseline (v2)}
+The initial training session established the core narrow-transcription capability of the system. The model (\texttt{MihirRPatil/}\allowbreak\texttt{nptel-asr-phoneme-v2}) was trained exclusively on the AI4Bharat NPTEL-pure dataset, comprising approximately 130GB of streamed audio. This dataset consists entirely of Indian academic lectures, which provided a stable, albeit narrow, acoustic environment.
+
+\subsection{Setup and Constraints}
+For the baseline, the reference dictionary was highly constrained, containing only 2,780 common Indian English words mapping to a 65-token phonetic inventory. 
+
+\subsection{Limitations Discovered}
+While the baseline model achieved a Mean Phoneme Error Rate (PER) of 20.97\% on a local validation split, it suffered from severe generalization issues:
+\begin{itemize}
+    \item \textbf{Out-of-Vocabulary (OOV) Drops:} Because the vocabulary was restricted to 2,780 words, any word spoken by a user outside of this list triggered an unknown token (\texttt{<unk>}) drop. The CTC aligner could not map \texttt{<unk>} tokens to valid phonetic probabilities, causing catastrophic failure states during real-time inference.
+    \item \textbf{Mojibake Encodings:} The phonetic tokens were stored using corrupted CP1252 (Windows-1252) double-encodings (e.g., `É™` instead of `/ə/`), which complicated the tokenizer integration.
+    \item \textbf{Acoustic Bias:} Training exclusively on academic lectures meant the model struggled to generalize to conversational speeds or heavy regional accents outside the NPTEL demographic.
+\end{itemize}
+
+\section{Session 2: The Production Model (v3)}
+To resolve the vocabulary and accent biases, the second training session introduced a massive, multi-accented dataset and an expanded, cleaned lexicon. The resulting model (\texttt{MihirRPatil/}\allowbreak\texttt{nptel-asr-phoneme-v3}) serves as the production backbone for VoiceScore.
+
+\subsection{Balanced Multi-Accent Mixture}
+To ensure the acoustic model was invariant to regional accents and speaking styles, the training data was structured as a balanced mixture:
+\begin{itemize}
+    \item \textbf{50\% NPTEL:} Retained for clear, academic enunciation.
+    \item \textbf{20\% Common Voice India (CV):} Introduced conversational, crowd-sourced speech variety.
+    \item \textbf{10\% Svarah:} Captured heavy Northern Indian accents.
+    \item \textbf{10\% OpenSLR 104 MUCS:} Captured Eastern accents (Bengali/Odia).
+    \item \textbf{10\% Eka Care:} Provided exposure to complex clinical and medical terminology.
+\end{itemize}
+
+\begin{table}[h]
+    \centering
+    \small
+    \caption{Multi-Accent Training Dataset Mixture Composition}
+    \label{tab:dataset_composition}
+    \begin{tabular}{p{3.5cm} p{3.2cm} p{1.8cm} p{1.8cm} p{4.2cm}}
+        \toprule
+        \textbf{Dataset Corpus} & \textbf{Target Domain} & \textbf{Mixture Ratio} & \textbf{Volume (Est. Hrs)} & \textbf{Acoustic Characteristics} \\
+        \midrule
+        AI4Bharat NPTEL-pure & Academic Lectures & 50\% & $\sim$130 hrs & High clarity, studio microphone, formal pace \\
+        Mozilla Common Voice (India) & Conversational Speech & 20\% & $\sim$52 hrs & Crowd-sourced, noisy backgrounds, varied pace \\
+        IISc Svarah & Northern Indian & 10\% & $\sim$26 hrs & Heavy retroflexion, regional phoneme shifts \\
+        OpenSLR 104 (MUCS) & Eastern India & 10\% & $\sim$26 hrs & Bengali/Odia accent shifts, vowel rounding \\
+        Eka Care & Medical & 10\% & $\sim$26 hrs & Polysyllabic drug and clinical terminology \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Lexicon and Encoding Overhaul}
+The constrained 2,780-word dictionary was replaced by the 133,737-word \textit{Clear Indian English Detailed IPA Lexicon}. All CP1252 mojibake encodings were purged and replaced with pure UTF-8 Unicode IPA characters. The phonetic inventory was finalized at 60 active, clean tokens.
+
+\subsection{Training Execution}
+The training loop was heavily optimized to saturate the RTX A6000 GPU, peaking at 91\%-96\% utilization. We employed a batch size of 16 with a gradient accumulation step of 4, yielding an effective batch size of 64. The AdamW optimizer was utilized alongside a linear learning rate decay scheduler. 
+
+The model was continuously evaluated against a held-out validation set. At step 41,000, the model achieved a Validation Mean PER of 14.17\%. Early stopping was triggered at this point to prevent overfitting on the training mixture, finalizing the weights for production deployment.
+
+\subsection{The GoP Overfitting Trap}
+A fundamental discovery during the training phase was the divergence between standard ASR objectives and Goodness of Pronunciation (GoP) objectives. Standard ASR systems are often trained for 30-40 epochs to minimize Word Error Rate (WER). Over many epochs, models learn implicit language modeling—they begin to "guess" what the user meant to say based on text memorization, effectively auto-correcting slurred or mispronounced audio.
+
+While beneficial for dictation, this behavior destroys a GoP system. If a diagnostic model is over-trained, it loses its strict acoustic sensitivity and flags mispronounced words as correct (a false positive) simply because the text context strongly predicted the word. 
+
+To preserve microscopic acoustic sensitivity across the 60-token IPA inventory, the training was strictly capped at approximately 8.5 epochs (50,000 steps). Furthermore, early stopping was explicitly monitored via Phoneme Error Rate (PER) rather than WER, as WER completely masks the granular phonetic errors we aimed to diagnose.

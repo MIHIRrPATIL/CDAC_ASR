@@ -1,0 +1,40 @@
+\chapter{Engineering Challenges and Solutions}
+
+Developing and deploying a deep-learning-based, real-time diagnostic system introduced numerous systems-level engineering challenges. This chapter documents the primary bottlenecks encountered and the technical strategies utilized to resolve them.
+
+\section{Dataloader Shared Memory Exhaustion (OOM)}
+\textbf{The Problem:} During the training of the acoustic model on large streaming audio datasets within a Docker container, PyTorch DataLoader worker processes continuously crashed. The system threw "Out of Memory" (OOM) errors specifically related to the exhaustion of \texttt{/dev/shm} (shared memory) rather than GPU VRAM. This occurred when spawning more than 12 multiprocessing workers to fetch and decode audio chunks simultaneously.
+
+\textbf{The Resolution:} 
+\begin{itemize}
+    \item Capped the CPU dataloader threads to a conservative limit (\texttt{--dataloader\_num\_workers 6}).
+    \item Optimized the batch size to 16 to reduce the memory footprint of each worker.
+    \item Compensated for the smaller batch size by increasing the gradient accumulation steps to 4, effectively preserving the large target batch size of 64 required for stable Wav2Vec2 training without overflowing shared memory.
+\end{itemize}
+
+\section{C-Level Segmentation Faults During Forced Alignment}
+\textbf{The Problem:} To calculate Goodness of Pronunciation (GoP) scores, the system relies on \texttt{torchaudio.functional.forced\_align}. However, under specific PyTorch/CUDA environments (particularly inside Hugging Face Spaces Docker instances), the C++ backend of the alignment binary would silently crash with a Segmentation Fault (Sigkill 11) when the target sequence length exceeded the acoustic frame length.
+
+\textbf{The Resolution:} 
+\begin{itemize}
+    \item \textbf{CPU Pinning:} The forced alignment operation was isolated and pinned to execute exclusively on the CPU, bypassing the unstable CUDA ABI bindings.
+    \item \textbf{Boundary Guardrails:} A strict pre-validation layer was implemented before passing data to the aligner. It asserts that the target length $L$ is less than or equal to the frame length $T$ ($T \ge L$), that $L > 0$, and that the targets contain no pad IDs.
+    \item \textbf{Linear Fallback:} If any guardrail check fails (e.g., the user spoke too quickly, resulting in very few frames), the system intercepts the error and executes a custom linear frame-to-phone time allocator. While less accurate than dynamic programming alignment, this fallback ensures the API never crashes and continues to serve the frontend.
+\end{itemize}
+
+\section{Database Offline Resilience (Hot Deployment Failures)}
+\textbf{The Problem:} The backend API utilizes Prisma ORM to connect to a Supabase PostgreSQL database for storing user history and scores. Initially, the backend server strictly awaited a successful database connection during the startup routine. If the database was unreachable (which frequently occurs during cold starts or transient network hiccups on Hugging Face Spaces), the FastAPI process would crash entirely, taking the core ASR inference engine offline with it.
+
+\textbf{The Resolution:}
+The startup routine in \texttt{app.py} was overhauled to implement an "Offline Resilience Mode." 
+\begin{itemize}
+    \item A default local connection URL fallback was provided to satisfy Prisma's internal initialization checks.
+    \item The actual connection attempt (\texttt{prisma.connect()}) was wrapped in a \texttt{try/except} block.
+    \item If the connection fails, the system logs a warning but allows the FastAPI server to boot up normally. The core ASR evaluation (`/analyze`) and the LLM AI Tutor features remain fully operational. Routes requiring the database simply return a clean HTTP 503 (Service Unavailable) error rather than crashing the application, guaranteeing maximum uptime for the core product features.
+\end{itemize}
+
+\section{Git Push LFS Binary Rejections}
+\textbf{The Problem:} Attempting to deploy the backend to Hugging Face Spaces via Git push was repeatedly rejected by Git Large File Storage (LFS) pre-receive hooks. The rejection was caused by historical \texttt{.mp3} and \texttt{.wav} binary cache files that existed deep in the commit history, exceeding the platform's strict binary file limits.
+
+\textbf{The Resolution:}
+Because rewriting the entire Git history was impractical, a clean "orphan" deployment branch (\texttt{hf-clean}) was initialized. Only the essential code files were copied into this branch, explicitly ignoring all binary caches via an updated \texttt{.gitignore}. A force-push of this clean tree to Hugging Face successfully bypassed the LFS blocks.

@@ -1,0 +1,53 @@
+\chapter{Evaluation and Results}
+
+The effectiveness of the VoiceScore system is quantified by its ability to accurately recognize fine-grained phonetic variations and generalize across diverse, unseen Indian English accents without representation collapse.
+
+\section{Validation Metrics}
+During the Session 2 (v3) training phase, the model was evaluated periodically against a held-out validation split drawn from the multi-accent mixture. The primary evaluation metric was the Phoneme Error Rate (PER), defined similarly to Word Error Rate (WER) but calculated at the phonetic token level:
+\begin{equation}
+    PER = \frac{S + D + I}{N}
+\end{equation}
+Where $S$ is the number of substitutions, $D$ is deletions, $I$ is insertions, and $N$ is the total number of phonemes in the reference transcription.
+
+At step 41,000 (early stopping point), the model achieved a \textbf{Validation Mean PER of 14.17\%}. This represents a highly competitive phonetic recognition capability, particularly given the narrow distinctions required by the Indian English IPA (e.g., distinguishing an alveolar /t/ from a retroflex /ʈ/).
+
+\section{Generalization Test Suite}
+To rigorously test the model's robustness against regional acoustic variations, it was evaluated against a massive, unseen test suite comprising 17,808 samples. This test set explicitly included heavy Tamil, Telugu, Hindi, and Bengali accent variations, which were underrepresented in the baseline NPTEL corpus.
+
+The results of the test suite evaluation are summarized below:
+\begin{itemize}
+    \item \textbf{Mean PER:} 24.96\%
+    \item \textbf{Median PER:} 16.28\%
+    \item \textbf{Blank Output Collapse Rate:} 0.00\%
+\end{itemize}
+
+\begin{table}[h]
+    \centering
+    \small
+    \caption{Quantitative Performance Benchmark Across System Iterations}
+    \label{tab:model_performance_comparison}
+    \begin{tabular}{p{5.0cm} p{4.5cm} p{5.0cm}}
+        \toprule
+        \textbf{Evaluation Metric / Feature} & \textbf{Session 1 Baseline (v2)} & \textbf{Session 2 Production (v3)} \\
+        \midrule
+        Vocabulary Size & 2,780 words & \textbf{133,738 words + Neural Fallback} \\
+        Character Encoding & Windows-1252 (Mojibake) & \textbf{Clean UTF-8 Unicode} \\
+        Validation Mean PER & 20.97\% & \textbf{14.17\% (32.4\% relative impr.)} \\
+        Unseen Test Set Mean PER & 38.45\% & \textbf{24.96\% (35.1\% relative impr.)} \\
+        Unseen Test Set Median PER & 29.10\% & \textbf{16.28\%} \\
+        OOV Transcript Drop Rate & 14.2\% & \textbf{0.00\% (Complete Elimination)} \\
+        Blank Output Collapse Rate & High on noisy speech & \textbf{0.00\% (Anti-Collapse Active)} \\
+        Accent Generalization Scope & Academic Lectures only & \textbf{Pan-Indian (Tamil, Hindi, etc.)} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The large discrepancy between the Mean (24.96\%) and Median (16.28\%) PER indicates that the vast majority of inferences performed exceptionally well (clustering around the 16\% mark), while a small minority of severe outliers (likely due to extreme background noise or entirely clipped audio files in the test suite) skewed the arithmetic mean upwards. 
+
+\section{Elimination of OOV Failures}
+The most significant qualitative result of the Session 2 upgrade was the complete elimination of Out-of-Vocabulary (OOV) drops. By expanding the dictionary to 133,737 words and integrating the neural G2P fallback, the system successfully parsed 100\% of the 17,808 test transcripts into valid phonetic targets. Consequently, the model encountered exactly zero `<unk>` (unknown) token drops, ensuring that the Contrastive CTC aligner could always generate valid frame-level probabilities for the Goodness of Pronunciation (GoP) scorer.
+
+\section{Anti-Collapse Verification}
+A critical failure mode in earlier experimental models was representation collapse, where the model would default to predicting the highly frequent schwa (`/ə/`) or the CTC blank token across the entire audio frame to artificially minimize the loss.
+
+Analysis of the output logits over the test suite confirmed that the Schwa Down-weighting mechanism successfully prevented this. The model demonstrated a 0.00\% blank output collapse rate, outputting diverse, high-confidence probability spikes across the full 60-token vocabulary.

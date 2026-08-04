@@ -1,0 +1,86 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{minted}
+\usepackage{cite}
+\usepackage{fancyhdr}
+
+\geometry{a4paper, margin=1in}
+\setspace{1.5}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1em}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    citecolor=black,
+}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \vspace*{1in}
+    
+    {\Huge \bfseries VoiceScore: AI-Powered Indian English Pronunciation Scoring\par}
+    \vspace{0.5in}
+    {\Large A Phoneme-Level Acoustic Diagnostic and Feedback Coach\par}
+    \vspace{1.5in}
+    
+    {\Large \textbf{Internship Completion Report}\par}
+    \vspace{0.5in}
+    
+    {\Large Submitted by:\par}
+    \vspace{0.15in}
+    {\Large \textbf{Kristina Pujary}\par}
+    {\Large \textbf{Mihir Patil}\par}
+    {\Large \textbf{Mahek Patel}\par}
+    \vspace{0.3in}
+    {\Large Under the Guidance of:\par}
+    \vspace{0.15in}
+    {\Large \textbf{Prof. Neha Katre}\par}
+    {\Large \textbf{Prof. Vinaya Sawant}\par}
+    {\Large \textbf{Prof. Prachi Tawade}\par}
+    \vspace{0.4in}
+    {\Large Department of Information Technology\par}
+    \vspace{0.3in}
+    {\large \today\par}
+\end{titlepage}
+
+\pagenumbering{roman}
+\input{chapters/abstract}
+\input{chapters/acknowledgements}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\newpage
+
+\pagenumbering{arabic}
+\input{chapters/01_introduction}
+\input{chapters/02_literature_review}
+\input{chapters/03_system_architecture}
+\input{chapters/04_dataset_lexicon}
+\input{chapters/05_training_methodology}
+\input{chapters/06_evaluation_results}
+\input{chapters/07_engineering_challenges}
+\input{chapters/08_product_deployment}
+\input{chapters/09_conclusion}
+
+\bibliographystyle{ieeetr}
+\bibliography{references}
+
+\end{document}
